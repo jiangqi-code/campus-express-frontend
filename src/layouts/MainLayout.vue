@@ -1,0 +1,212 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+
+import { useAuthStore } from '@/stores/auth'
+
+type Role = 'user' | 'runner' | 'admin'
+
+type MenuItem = {
+  label: string
+  to: string
+  roles?: Role[]
+}
+
+type MenuGroup = {
+  label: string
+  roles?: Role[]
+  items: MenuItem[]
+}
+
+const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
+
+const roleLabel = computed(() => {
+  if (auth.role === 'admin') return '管理员'
+  if (auth.role === 'runner') return '跑腿员'
+  return '用户'
+})
+
+function isActive(prefix: string) {
+  return route.path === prefix || route.path.startsWith(`${prefix}/`)
+}
+
+function canShow(roles?: Role[]) {
+  if (!roles || roles.length === 0) return true
+  const r = auth.role as Role
+  return roles.includes(r)
+}
+
+const menuGroups = computed<MenuGroup[]>(() => {
+  const common: MenuGroup[] = [
+    {
+      label: '任务与订单',
+      items: [
+        { label: '任务大厅', to: '/tasks' },
+        { label: '我的订单', to: '/orders' },
+      ],
+    },
+    {
+      label: '钱包',
+      items: [
+        { label: '钱包充值', to: '/wallet/recharge' },
+        { label: '钱包流水', to: '/wallet/logs' },
+      ],
+    },
+    {
+      label: '账户',
+      items: [{ label: '个人资料', to: '/profile' }],
+    },
+  ]
+
+  const userExtra: MenuGroup[] = [
+    {
+      label: '用户功能',
+      roles: ['user', 'admin'],
+      items: [
+        { label: '发布任务', to: '/task/publish', roles: ['user', 'admin'] },
+        { label: '申请成为跑腿员', to: '/runner/apply', roles: ['user'] },
+      ],
+    },
+  ]
+
+  const runnerExtra: MenuGroup[] = [
+    {
+      label: '跑腿员功能',
+      roles: ['runner', 'admin'],
+      items: [
+        { label: '收入与结算', to: '/runner/earnings', roles: ['runner', 'admin'] },
+        { label: '提现记录', to: '/runner/withdrawals', roles: ['runner', 'admin'] },
+        { label: '跑腿员统计', to: '/runner/statistics', roles: ['runner', 'admin'] },
+      ],
+    },
+  ]
+
+  const adminExtra: MenuGroup[] = [
+    {
+      label: '管理后台',
+      roles: ['admin'],
+      items: [
+        { label: '后台仪表盘', to: '/admin/dashboard', roles: ['admin'] },
+        { label: '后台日志', to: '/admin/logs', roles: ['admin'] },
+        { label: '登录日志', to: '/admin/logs/login', roles: ['admin'] },
+        { label: '错误日志', to: '/admin/logs/error', roles: ['admin'] },
+        { label: '用户管理', to: '/admin/users', roles: ['admin'] },
+        { label: '任务治理', to: '/admin/tasks', roles: ['admin'] },
+        { label: '订单治理', to: '/admin/orders', roles: ['admin'] },
+        { label: '提现审核', to: '/admin/withdrawals', roles: ['admin'] },
+        { label: '退款审核', to: '/admin/refunds', roles: ['admin'] },
+        { label: '跑腿员入驻审核', to: '/admin/runner-auth', roles: ['admin'] },
+        { label: '举报管理', to: '/admin/reports', roles: ['admin'] },
+        { label: '投诉处理', to: '/admin/complaints', roles: ['admin'] },
+        { label: '系统配置', to: '/admin/config', roles: ['admin'] },
+        { label: '敏感词管理', to: '/admin/sensitive-words', roles: ['admin'] },
+      ],
+    },
+  ]
+
+  const base = [...common]
+
+  const r = auth.role as Role
+  if (r === 'user') return [...userExtra, ...base]
+  if (r === 'runner') return [...runnerExtra, ...base]
+  return [...adminExtra, ...runnerExtra, ...userExtra, ...base]
+})
+
+function onLogout() {
+  auth.logout()
+  router.push('/login')
+}
+</script>
+
+<template>
+  <div class="min-vh-100 d-flex flex-column">
+    <nav class="navbar navbar-expand-lg navbar-light bg-white border-bottom">
+      <div class="container-xxl">
+        <RouterLink class="navbar-brand d-flex align-items-center gap-2" to="/tasks">
+          <span
+            class="rounded-3 d-inline-flex align-items-center justify-content-center text-white fw-semibold"
+            style="width: 32px; height: 32px; background: var(--bs-primary)"
+            >CE</span
+          >
+          <span class="fw-semibold">Campus Express</span>
+        </RouterLink>
+
+        <button
+          class="navbar-toggler"
+          type="button"
+          data-bs-toggle="collapse"
+          data-bs-target="#ceNavbar"
+          aria-controls="ceNavbar"
+          aria-expanded="false"
+          aria-label="Toggle navigation"
+        >
+          <span class="navbar-toggler-icon" />
+        </button>
+
+        <div id="ceNavbar" class="collapse navbar-collapse">
+          <div class="ms-auto d-flex align-items-center gap-2">
+            <span class="badge text-bg-light border">{{ roleLabel }}</span>
+            <div class="dropdown">
+              <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                {{ auth.displayName }}
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li>
+                  <RouterLink class="dropdown-item" to="/profile">个人资料</RouterLink>
+                </li>
+                <li>
+                  <RouterLink class="dropdown-item" to="/wallet/logs">钱包流水</RouterLink>
+                </li>
+                <li><hr class="dropdown-divider" /></li>
+                <li><button class="dropdown-item text-danger" type="button" @click="onLogout">退出登录</button></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <main class="flex-grow-1 py-4">
+      <div class="container-xxl">
+        <div class="row g-3">
+          <div class="col-12 col-lg-3">
+            <div class="card border-0 shadow-sm">
+              <div class="card-body">
+                <div v-for="g in menuGroups" :key="g.label" class="mb-3">
+                  <div v-if="canShow(g.roles)" class="vstack gap-2">
+                    <div class="text-muted small fw-semibold">{{ g.label }}</div>
+                    <div class="list-group list-group-flush">
+                      <template v-for="it in g.items" :key="it.to">
+                        <RouterLink
+                          v-if="canShow(it.roles)"
+                          class="list-group-item list-group-item-action"
+                          :class="{ active: isActive(it.to) }"
+                          :to="it.to"
+                        >
+                          {{ it.label }}
+                        </RouterLink>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 col-lg-9">
+            <RouterView />
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="border-top bg-white">
+      <div class="container-xxl py-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <div class="text-muted small">© Campus Express</div>
+        <div class="text-muted small">主色 #4361ee · Bootstrap 5</div>
+      </div>
+    </footer>
+  </div>
+</template>

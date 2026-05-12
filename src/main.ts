@@ -1,0 +1,26 @@
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import ElementPlus from 'element-plus'
+
+import 'bootstrap/dist/css/bootstrap.min.css'
+import 'bootstrap/dist/js/bootstrap.bundle.min.js'
+import 'element-plus/dist/index.css'
+
+import './styles/variables.css'
+import './styles/globals.css'
+
+import App from './App.vue'
+import router from './router'
+import { useThemeStore } from './stores/theme'
+
+const app = createApp(App)
+
+const pinia = createPinia()
+
+app.use(pinia)
+app.use(router)
+app.use(ElementPlus)
+
+useThemeStore(pinia).apply()
+
+app.mount('#app')

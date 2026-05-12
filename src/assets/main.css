@@ -1,0 +1,22 @@
+@import './base.css';
+
+:root {
+  --bs-primary: #4361ee;
+  --bs-primary-rgb: 67, 97, 238;
+}
+
+body {
+  background: #f8f9fa;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.card {
+  border-radius: 0.75rem;
+}
+
+.shadow-soft {
+  box-shadow: 0 10px 30px rgba(16, 24, 40, 0.08);
+}
