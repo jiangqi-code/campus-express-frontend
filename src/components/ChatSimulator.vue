@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 
 import { http } from '@/api/request'
 import { useAuthStore } from '@/stores/auth'
+import { useMessageStore } from '@/stores/messages'
 
 type ChatSide = 'me' | 'other'
 
@@ -35,6 +36,7 @@ const messages = ref<ChatMessageVM[]>([])
 const draft = ref('')
 const listEl = ref<HTMLElement | null>(null)
 const auth = useAuthStore()
+const messageStore = useMessageStore()
 
 const myUserId = computed(() => String(auth.userId || '').trim())
 const myDisplayName = computed(() => String(auth.displayName || '').trim())
@@ -260,6 +262,7 @@ async function send() {
     draft.value = ''
     await loadHistory('replace')
     pollError.value = ''
+    messageStore.fetchMessages().catch(() => {})
   } catch (err) {
     ElMessage.error(getErrorMessage(err))
   } finally {

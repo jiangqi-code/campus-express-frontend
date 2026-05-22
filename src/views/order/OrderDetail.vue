@@ -11,16 +11,19 @@ import {
   getOrderTrack,
   pickupOrder,
   saveDeliveryPhoto,
+  urgeOrder,
   type OrderDetail,
   type OrderTrack,
 } from '@/api/order'
 import { baseURL, http } from '@/api/request'
 import ChatSimulator from '@/components/ChatSimulator.vue'
 import { useAuthStore } from '@/stores/auth'
+import { useWebsocketStore } from '@/stores/websocket'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const websocketStore = useWebsocketStore()
 
 const orderId = computed(() => String((route.params as any)?.orderId ?? (route.query as any)?.orderId ?? '').trim())
 
@@ -33,6 +36,12 @@ const trackErrorMessage = ref('')
 const track = ref<OrderTrack | null>(null)
 
 const isRunner = computed(() => auth.role === 'runner')
+const isUser = computed(() => auth.role === 'user')
+
+const urgeLoading = ref(false)
+const urgeCooldownEndAt = ref(0)
+const urgeTick = ref(Date.now())
+let urgeTimer: number | null = null
 
 const runnerPhoneLoading = ref(false)
 const runnerPhone = ref('')
@@ -57,6 +66,34 @@ const routeDistanceKm = ref<number | null>(null)
 const routeDurationMin = ref<number | null>(null)
 const navProgress = ref(0)
 let planSeq = 0
+
+const deliveringSimPercent = ref(0)
+let deliveringSimTimer: number | null = null
+
+function isCompletedStatus(status: string) {
+  return status === 'COMPLETED' || status === 'DONE' || status === 'FINISHED'
+}
+
+function isDeliveringStatus(status: string) {
+  return status === 'DELIVERING' || status === 'DELIVER'
+}
+
+function clearDeliveringSimTimer() {
+  if (deliveringSimTimer) window.clearInterval(deliveringSimTimer)
+  deliveringSimTimer = null
+}
+
+function startDeliveringSimTimer() {
+  if (deliveringSimTimer) return
+  deliveringSimTimer = window.setInterval(() => {
+    if (!isDeliveringStatus(orderStatusUpper.value)) {
+      clearDeliveringSimTimer()
+      return
+    }
+    if (deliveringSimPercent.value >= 100) return
+    deliveringSimPercent.value = Math.min(100, deliveringSimPercent.value + 10)
+  }, 10000)
+}
 
 const imageBase = 'http://localhost:3000'
 
@@ -126,15 +163,48 @@ function maskPhone(v: string) {
   return digits.replace(/^(\d{3})\d+(\d{4})$/, '$1****$2')
 }
 
+function urgeCooldownStorageKey(id: string) {
+  const oid = String(id ?? '').trim()
+  return oid ? `ce:order_urge_cooldown:${oid}` : ''
+}
+
+function clearUrgeTimer() {
+  if (urgeTimer) window.clearInterval(urgeTimer)
+  urgeTimer = null
+}
+
+function ensureUrgeTimer() {
+  clearUrgeTimer()
+  if (!urgeCooldownEndAt.value) return
+  urgeTick.value = Date.now()
+  urgeTimer = window.setInterval(() => {
+    urgeTick.value = Date.now()
+    if (urgeCooldownEndAt.value && urgeCooldownEndAt.value <= urgeTick.value) {
+      const key = urgeCooldownStorageKey(orderId.value)
+      urgeCooldownEndAt.value = 0
+      if (key) localStorage.removeItem(key)
+      clearUrgeTimer()
+    }
+  }, 1000)
+}
+
 function pickRunnerId(o: any) {
   const root = o?.data ?? o
   const raw =
+    root?.task?.runner_id ??
+    root?.task?.runnerId ??
+    root?.task?.taker_id ??
+    root?.task?.takerId ??
     root?.runner_id ??
     root?.runnerId ??
     root?.taker_id ??
     root?.takerId ??
+    root?.task?.runner?.id ??
+    root?.task?.taker?.id ??
     root?.runner?.id ??
     root?.taker?.id ??
+    root?.task?.runner?.user_id ??
+    root?.task?.taker?.user_id ??
     root?.runner?.user_id ??
     root?.taker?.user_id
   return String(raw ?? '').trim()
@@ -224,8 +294,13 @@ function clearOrderPollTimer() {
 
 function applyProgressFromOrder(data: any) {
   const status = pickOrderStatusUpper(data)
-  const percent = status === 'COMPLETED' || status === 'DONE' || status === 'FINISHED' ? 100 : pickProgressPercent(data)
-  navProgress.value = clamp01(percent / 100)
+  const rawPercent = isCompletedStatus(status) ? 100 : pickProgressPercent(data)
+  if (isDeliveringStatus(status)) {
+    if (rawPercent < 100) deliveringSimPercent.value = Math.max(deliveringSimPercent.value, rawPercent)
+    navProgress.value = clamp01(deliveringSimPercent.value / 100)
+  } else {
+    navProgress.value = clamp01(rawPercent / 100)
+  }
   updateRunnerMarkerByProgress(navProgress.value)
 }
 
@@ -517,6 +592,11 @@ async function fetchOrder() {
       await fetchRunnerPhone(runnerId)
     }
     startOrderPollTimer()
+    
+    // 加入 WebSocket 房间，接收催单推送
+    if (orderId.value) {
+      websocketStore.joinOrder(Number(orderId.value))
+    }
   } catch (err: any) {
     errorMessage.value = err?.response?.data?.message || err?.message || '加载失败'
   } finally {
@@ -532,8 +612,11 @@ async function fetchTrack() {
   trackLoading.value = true
   try {
     track.value = await getOrderTrack(id)
+    console.log('fetchTrack 获取到的 track:', track.value)
+    console.log('delivery_photo_url:', track.value?.delivery_photo_url)
   } catch (err: any) {
     trackErrorMessage.value = err?.response?.data?.message || err?.message || '加载失败'
+    console.error('fetchTrack 错误:', err)
   } finally {
     trackLoading.value = false
   }
@@ -566,7 +649,8 @@ const orderStatusUpper = computed(() => pickOrderStatusUpper(order.value))
 const backendProgressPercent = computed(() => pickProgressPercent(order.value))
 const displayProgressPercent = computed(() => {
   const status = orderStatusUpper.value
-  if (status === 'COMPLETED' || status === 'DONE' || status === 'FINISHED') return 100
+  if (isCompletedStatus(status)) return 100
+  if (isDeliveringStatus(status)) return deliveringSimPercent.value
   return backendProgressPercent.value
 })
 const displayProgressPercentInt = computed(() => Math.round(displayProgressPercent.value))
@@ -576,9 +660,9 @@ const progressBarWidth = computed(
 const deliveryStatusText = computed(() => {
   const status = orderStatusUpper.value
   const percent = displayProgressPercentInt.value
-  if (status === 'COMPLETED' || status === 'DONE' || status === 'FINISHED') return '已完成'
-  if ((status === 'DELIVERING' || status === 'DELIVER') && percent >= 100) return '配送完成'
-  if (status === 'DELIVERING' || status === 'DELIVER') return `配送进度 ${percent}%`
+  if (isCompletedStatus(status)) return '已完成'
+  if (isDeliveringStatus(status) && percent >= 100) return '配送完成'
+  if (isDeliveringStatus(status)) return `配送进度 ${percent}%`
   return '—'
 })
 
@@ -604,6 +688,52 @@ const runnerPhoneText = computed(() => {
   return showFullPhone.value ? runnerPhone.value : maskPhone(runnerPhone.value)
 })
 
+const urgeRemainingSec = computed(() => {
+  const endAt = Number(urgeCooldownEndAt.value) || 0
+  if (!endAt) return 0
+  const remain = Math.ceil((endAt - urgeTick.value) / 1000)
+  return Math.max(0, remain)
+})
+const canUrge = computed(() => isUser.value && Boolean(orderId.value) && isDeliveringStatus(orderStatusUpper.value))
+const urgeDisabled = computed(() => urgeLoading.value || urgeRemainingSec.value > 0)
+const urgeButtonText = computed(() => (urgeRemainingSec.value > 0 ? `催单（${urgeRemainingSec.value}s）` : '催单'))
+
+watch(
+  orderId,
+  (id) => {
+    const key = urgeCooldownStorageKey(id)
+    const stored = key ? Number(localStorage.getItem(key) || 0) : 0
+    urgeCooldownEndAt.value = Number.isFinite(stored) ? stored : 0
+    if (urgeCooldownEndAt.value && urgeCooldownEndAt.value <= Date.now()) {
+      urgeCooldownEndAt.value = 0
+      if (key) localStorage.removeItem(key)
+    }
+    ensureUrgeTimer()
+  },
+  { immediate: true },
+)
+
+async function onUrgeOrder() {
+  if (!canUrge.value) return
+  if (urgeDisabled.value) return
+  if (!orderId.value) return
+  urgeLoading.value = true
+  try {
+    await urgeOrder(orderId.value)
+    ElMessage.success('已催单，跑腿员将尽快处理')
+    const endAt = Date.now() + 300_000
+    urgeCooldownEndAt.value = endAt
+    const key = urgeCooldownStorageKey(orderId.value)
+    if (key) localStorage.setItem(key, String(endAt))
+    ensureUrgeTimer()
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err?.message || '催单失败'
+    ElMessage.error(String(msg))
+  } finally {
+    urgeLoading.value = false
+  }
+}
+
 const timeline = computed(() => {
   const status = orderStatusUpper.value
   const progress = displayProgressPercentInt.value
@@ -612,11 +742,11 @@ const timeline = computed(() => {
       ? 0
       : status === 'PICKED'
         ? 1
-        : status === 'DELIVERING' || status === 'DELIVER'
+        : isDeliveringStatus(status)
           ? progress >= 100
             ? 3
             : 2
-          : status === 'COMPLETED' || status === 'DONE' || status === 'FINISHED'
+          : isCompletedStatus(status)
             ? 4
             : -1
 
@@ -757,8 +887,18 @@ async function submitRunnerPhoto() {
       await pickupOrder(id, runnerPhotoUrl.value)
       ElMessage.success('已取件')
     } else {
-      await saveDeliveryPhoto(id, runnerPhotoUrl.value)
+      console.log('上传送达照片前 - delivery_photo_url:', track.value?.delivery_photo_url)
+      const result = await saveDeliveryPhoto(id, runnerPhotoUrl.value)
+      console.log('saveDeliveryPhoto 返回:', result)
       ElMessage.success('已保存送达照片')
+      
+      // 手动更新 track 数据，避免重新请求
+      if (track.value) {
+        track.value = {
+          ...track.value,
+          delivery_photo_url: runnerPhotoUrl.value
+        }
+      }
     }
     closeRunnerPhoto()
     await fetchOrder()
@@ -793,8 +933,8 @@ const runnerCompleteLoading = ref(false)
 const canRunnerComplete = computed(
   () =>
     isRunner.value &&
-    orderStatusUpper.value === 'DELIVERING' &&
-    backendProgressPercent.value >= 100,
+    isDeliveringStatus(orderStatusUpper.value) &&
+    displayProgressPercent.value >= 100,
 )
 
 async function onCompleteOrder() {
@@ -823,6 +963,21 @@ const canRunnerStartDelivering = computed(
     isRunner.value &&
     Boolean(orderId.value) &&
     (orderStatusUpper.value === 'PICKED' || orderStatusUpper.value === 'PICKUP' || orderStatusUpper.value === 'PICKED_UP'),
+)
+
+watch(
+  () => orderStatusUpper.value,
+  (status) => {
+    if (isDeliveringStatus(status)) {
+      const initial = backendProgressPercent.value
+      deliveringSimPercent.value = initial >= 100 ? 0 : Math.max(0, Math.min(100, initial))
+      startDeliveringSimTimer()
+      return
+    }
+    clearDeliveringSimTimer()
+    deliveringSimPercent.value = isCompletedStatus(status) ? 100 : 0
+  },
+  { immediate: true },
 )
 const canRunnerUploadDeliveryPhoto = computed(
   () =>
@@ -864,7 +1019,15 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
+  clearDeliveringSimTimer()
   clearOrderPollTimer()
+  clearUrgeTimer()
+  
+  // 离开 WebSocket 房间
+  if (orderId.value) {
+    websocketStore.leaveOrder(Number(orderId.value))
+  }
+  
   try {
     map.value?.destroy?.()
   } catch {
@@ -923,6 +1086,9 @@ onUnmounted(() => {
             <div class="d-flex flex-wrap gap-2 align-items-center">
               <button class="btn btn-primary" type="button" :disabled="!orderId || !chatTargetId" @click="openChat">
                 联系跑腿员
+              </button>
+              <button v-if="canUrge" class="btn btn-warning" type="button" :disabled="urgeDisabled" @click="onUrgeOrder">
+                {{ urgeButtonText }}
               </button>
               <button
                 v-if="canRunnerPickup"

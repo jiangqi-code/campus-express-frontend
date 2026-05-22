@@ -45,6 +45,7 @@ const menuGroups = computed<MenuGroup[]>(() => {
       items: [
         { label: '任务大厅', to: '/tasks' },
         { label: '我的订单', to: '/orders' },
+        { label: '我的消息', to: '/messages' },
       ],
     },
     {

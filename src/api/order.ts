@@ -49,10 +49,10 @@ function mapOrder(raw: any): OrderListItem {
   ).trim()
   const deliveryAddress = String(
     root?.delivery_address ??
-      root?.deliveryAddress ??
-      root?.task?.delivery_address ??
-      root?.task?.deliveryAddress ??
-      '',
+    root?.deliveryAddress ??
+    root?.task?.delivery_address ??
+    root?.task?.deliveryAddress ??
+    '',
   ).trim()
 
   const explicitAmount =
@@ -111,20 +111,27 @@ export async function listMyOrders(): Promise<OrderListItem[]> {
   return listOrders()
 }
 
-export async function urgeOrder(id: string) {
-  const response = await http.post(`/order/${encodeURIComponent(id)}/urge`)
-  return response.data
+export const acceptTask = (taskId: string) => http.post(`/order/accept/${encodeURIComponent(taskId)}`)
+
+export const pickupOrder = (orderId: string, photoUrl?: string) => {
+  const url = String(photoUrl ?? '').trim()
+  return http.put(`/order/pickup/${encodeURIComponent(orderId)}`, url ? { pickup_photo_url: url } : {})
 }
 
-export async function cancelOrder(id: string) {
-  const response = await http.put(`/order/${encodeURIComponent(id)}/cancel`)
-  return response.data
-}
+export const deliverOrder = (orderId: string) =>
+  http.put(`/order/deliver/${encodeURIComponent(orderId)}`)
 
-export async function confirmOrder(id: string) {
-  const response = await http.post(`/order/confirm/${encodeURIComponent(id)}`)
-  return response.data
-}
+export const completeOrder = (orderId: string) =>
+  http.put(`/order/complete/${encodeURIComponent(orderId)}`)
+
+export const cancelOrder = (orderId: string) =>
+  http.put(`/order/cancel/${encodeURIComponent(orderId)}`)
+
+export const confirmOrder = (orderId: string) =>
+  http.post(`/order/confirm/${encodeURIComponent(orderId)}`)
+
+export const urgeOrder = (orderId: string) =>
+  http.post(`/order/${encodeURIComponent(orderId)}/urge`)
 
 export type OrderReviewPayload = {
   rating: number
@@ -137,21 +144,6 @@ export async function reviewOrder(id: string, payload: OrderReviewPayload) {
   return response.data
 }
 
-export async function pickupOrder(id: string, pickupPhotoUrl?: string) {
-  const response = await http.put(
-    `/order/pickup/${encodeURIComponent(id)}`,
-    pickupPhotoUrl ? { pickup_photo_url: pickupPhotoUrl } : undefined,
-  )
-  return response.data
-}
-
-export async function deliverOrder(id: string, deliveryPhotoUrl?: string) {
-  const response = await http.put(
-    `/order/deliver/${encodeURIComponent(id)}`,
-    deliveryPhotoUrl ? { delivery_photo_url: deliveryPhotoUrl } : undefined,
-  )
-  return response.data
-}
 
 export async function saveDeliveryPhoto(id: string, deliveryPhotoUrl: string) {
   const url = String(deliveryPhotoUrl ?? '').trim()
@@ -159,10 +151,6 @@ export async function saveDeliveryPhoto(id: string, deliveryPhotoUrl: string) {
   return response.data
 }
 
-export async function completeOrder(id: string) {
-  const response = await http.put(`/order/complete/${encodeURIComponent(id)}`)
-  return response.data
-}
 
 export type OrderTrack = {
   pickup_photo_url?: string

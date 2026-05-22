@@ -32,16 +32,20 @@ const errorMessage = ref('')
 type OrderRow = {
   id: string | number
   order_id?: string | number
+  orderId?: string | number
   task_id?: string | number
+  taskId?: string | number
   pickup_address?: string
   delivery_address?: string
   status?: string
   fee_total?: number | string
   final_price?: number | string
   task?: {
+    id?: string | number
     fee_total?: number | string
   }
   order?: {
+    id?: string | number
     final_price?: number | string
   }
 }
@@ -149,22 +153,37 @@ function getAmount(row: any) {
   return formatMoney(row?.fee_total ?? row?.task?.fee_total ?? row?.final_price ?? row?.order?.final_price ?? 0)
 }
 
+function pickOrderIdFromRow(row: any) {
+  return String(
+    row?.order_id ??
+      row?.orderId ??
+      row?.order?.id ??
+      row?.order?.order_id ??
+      row?.order?.orderId ??
+      '',
+  ).trim()
+}
+
+function pickTaskIdFromRow(row: any) {
+  return String(row?.task_id ?? row?.taskId ?? row?.task?.id ?? row?.id ?? '').trim()
+}
+
 function toOrderId(o: OrderRow) {
-  return String(o.order_id || o.id || '').trim()
+  const picked = pickOrderIdFromRow(o)
+  if (picked) return picked
+  return String((o as any)?.id ?? '').trim()
 }
 
 function openDetail(o: OrderRow) {
-  const orderId = String(o.order_id ?? '').trim()
-  const taskId = String(o.task_id ?? o.id ?? '').trim()
-  
-  if (activeTab.value === 'taken') {
-    router.push({ name: 'order-track', params: { orderId: orderId || taskId } })
-  } else {
-    if (orderId) {
-      router.push({ name: 'order-track', params: { orderId } })
-    } else if (taskId) {
-      router.push({ name: 'task-detail', params: { id: taskId } })
-    }
+  const orderId = toOrderId(o)
+  const taskId = pickTaskIdFromRow(o)
+
+  if (orderId) {
+    router.push({ name: 'order-track', params: { orderId } })
+    return
+  }
+  if (taskId) {
+    router.push({ name: 'task-detail', params: { id: taskId } })
   }
 }
 
@@ -176,8 +195,36 @@ function openChat(o: OrderRow) {
   chatVisible.value = true
 
   const row: any = o as any
-  const rowPublisherId = String(row?.publisher_id ?? row?.publisherId ?? row?.task?.publisher_id ?? row?.task?.publisherId ?? '').trim()
-  const rowTakerId = String(row?.taker_id ?? row?.takerId ?? row?.runner_id ?? row?.runnerId ?? row?.taker?.id ?? row?.runner?.id ?? '').trim()
+  const rowPublisherId = String(
+    row?.publisher_id ??
+      row?.publisherId ??
+      row?.task?.publisher_id ??
+      row?.task?.publisherId ??
+      row?.publisher?.id ??
+      row?.publisher?.user_id ??
+      row?.task?.publisher?.id ??
+      row?.task?.publisher?.user_id ??
+      '',
+  ).trim()
+  const rowTakerId = String(
+    row?.taker_id ??
+      row?.takerId ??
+      row?.runner_id ??
+      row?.runnerId ??
+      row?.task?.taker_id ??
+      row?.task?.takerId ??
+      row?.task?.runner_id ??
+      row?.task?.runnerId ??
+      row?.taker?.id ??
+      row?.runner?.id ??
+      row?.task?.taker?.id ??
+      row?.task?.runner?.id ??
+      row?.taker?.user_id ??
+      row?.runner?.user_id ??
+      row?.task?.taker?.user_id ??
+      row?.task?.runner?.user_id ??
+      '',
+  ).trim()
   chatToUserId.value = activeTab.value === 'taken' ? rowPublisherId : rowTakerId
   if (chatToUserId.value) return
 
@@ -187,9 +234,35 @@ function openChat(o: OrderRow) {
       const detail = resp.data?.data ?? resp.data
       const root = detail?.data ?? detail
       const publisherId = String(
-        root?.task?.publisher_id ?? root?.task?.publisherId ?? root?.publisher_id ?? root?.publisherId ?? '',
+        root?.task?.publisher_id ??
+          root?.task?.publisherId ??
+          root?.publisher_id ??
+          root?.publisherId ??
+          root?.publisher?.id ??
+          root?.publisher?.user_id ??
+          root?.task?.publisher?.id ??
+          root?.task?.publisher?.user_id ??
+          '',
       ).trim()
-      const takerId = String(root?.taker_id ?? root?.takerId ?? root?.runner_id ?? root?.runnerId ?? '').trim()
+      const takerId = String(
+        root?.taker_id ??
+          root?.takerId ??
+          root?.runner_id ??
+          root?.runnerId ??
+          root?.task?.taker_id ??
+          root?.task?.takerId ??
+          root?.task?.runner_id ??
+          root?.task?.runnerId ??
+          root?.taker?.id ??
+          root?.runner?.id ??
+          root?.task?.taker?.id ??
+          root?.task?.runner?.id ??
+          root?.taker?.user_id ??
+          root?.runner?.user_id ??
+          root?.task?.taker?.user_id ??
+          root?.task?.runner?.user_id ??
+          '',
+      ).trim()
       chatToUserId.value = activeTab.value === 'taken' ? publisherId : takerId
     } catch {
       chatToUserId.value = ''
@@ -416,12 +489,15 @@ function isCancelableStatus(statusRaw: unknown) {
 }
 
 function canUrge(o: OrderRow) {
+  const id = toOrderId(o)
+  if (!id) return false
   return !isCompletedStatus(o.status) && !isCancelledStatus(o.status)
 }
 
 function canCancel(o: OrderRow) {
-  const id = toOrderId(o)
-  if (!id) return false
+  const orderId = toOrderId(o)
+  const taskId = pickTaskIdFromRow(o)
+  if (!orderId && !taskId) return false
   return isCancelableStatus(o.status)
 }
 
@@ -434,7 +510,15 @@ function canConfirm(o: OrderRow) {
 function pickItems(data: any): OrderRow[] {
   const root = data?.data ?? data
   const items = root?.items ?? root?.list ?? root?.rows ?? root?.records ?? root?.result ?? []
-  return Array.isArray(items) ? (items as OrderRow[]) : []
+  if (!Array.isArray(items)) return []
+  return (items as any[]).map((it) => {
+    const orderId = pickOrderIdFromRow(it)
+    const taskId = String(it?.task_id ?? it?.taskId ?? it?.task?.id ?? it?.id ?? '').trim()
+    const normalized: any = { ...(it as any) }
+    if (orderId && normalized.order_id === undefined) normalized.order_id = orderId
+    if (taskId && normalized.task_id === undefined) normalized.task_id = taskId
+    return normalized as OrderRow
+  })
 }
 
 function buildListUrl(type: TabKey) {
@@ -513,6 +597,7 @@ async function onUrge(o: OrderRow) {
   const ok = window.confirm('确认催单？')
   if (!ok) return
   const orderId = toOrderId(o)
+  if (!orderId) return
   await runAction(String(o.id), 'urge', () => urgeOrder(orderId), '已催单')
 }
 
@@ -520,8 +605,8 @@ async function onCancel(o: OrderRow) {
   if (!isCancelableStatus(o.status)) return
   const ok = window.confirm('确认取消该订单？')
   if (!ok) return
-  const orderId = String(o.order_id ?? '').trim()
-  const taskId = String(o.task_id ?? o.id ?? '').trim()
+  const orderId = toOrderId(o)
+  const taskId = pickTaskIdFromRow(o)
   
   if (orderId) {
     await runAction(String(o.id), 'cancel', () => cancelOrder(orderId), '订单已取消')
@@ -650,6 +735,7 @@ async function submitRunnerPhoto() {
   runnerPhotoSubmitting.value = true
   try {
     if (runnerPhotoMode.value === 'pickup') {
+      console.log('取件图片URL:', runnerPhotoUrl.value)
       await pickupOrder(id, runnerPhotoUrl.value)
       ElMessage.success('已取件')
       closeRunnerPhoto()
@@ -667,6 +753,7 @@ async function submitRunnerPhoto() {
     runnerPhotoSubmitting.value = false
   }
 }
+
 
 const displayRows = computed(() => (activeTab.value === 'taken' ? takenRows.value : publishedRows.value))
 

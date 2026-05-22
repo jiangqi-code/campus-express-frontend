@@ -96,6 +96,12 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/order/OrderDetail.vue'),
         meta: { title: '订单详情' },
       },
+      {
+        path: 'messages',
+        name: 'messages',
+        component: () => import('@/views/message/MessageCenter.vue'),
+        meta: { title: '我的消息' },
+      },
 
       {
         path: 'runner/earnings',

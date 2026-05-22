@@ -8,6 +8,7 @@ type WalletLogRaw = Record<string, any>
 type WalletLogVM = {
   id: string | number
   type: string
+  title: string
   amount: number
   balanceBefore?: number
   balanceAfter?: number
@@ -81,6 +82,12 @@ function normalizeType(rawType: unknown): string {
   if (!t) return ''
 
   const lower = t.toLowerCase()
+  if (t.includes('充值') || t.includes('入金') || t.includes('加款')) return 'recharge'
+  if (t.includes('支付') || t.includes('扣款') || t.includes('支出') || t.includes('消费')) return 'pay'
+  if (t.includes('收入') || t.includes('收益') || t.includes('入账') || t.includes('到账')) return 'income'
+  if (t.includes('提现') || t.includes('出金') || t.includes('取现')) return 'withdraw'
+  if (t.includes('退款')) return 'refund'
+
   if (lower === 'recharge' || lower === 'topup' || lower === 'deposit') return 'recharge'
   if (lower === 'pay' || lower === 'payment' || lower === 'consume' || lower === 'expense') return 'pay'
   if (lower === 'income' || lower === 'earn' || lower === 'earning') return 'income'
@@ -106,6 +113,39 @@ function typeLabel(type: string) {
   if (type === 'withdraw') return '提现'
   if (type === 'refund') return '退款'
   return type || '-'
+}
+
+function typeBadgeClass(type: string) {
+  if (type === 'recharge') return 'badge text-bg-primary'
+  if (type === 'income') return 'badge text-bg-success'
+  if (type === 'refund') return 'badge text-bg-info'
+  if (type === 'pay') return 'badge text-bg-danger'
+  if (type === 'withdraw') return 'badge text-bg-warning'
+  return 'badge text-bg-secondary'
+}
+
+function normalizeText(v: unknown) {
+  const s = String(v ?? '').trim()
+  return s ? s : ''
+}
+
+function deriveTitle(type: string, r: WalletLogRaw) {
+  const explicit =
+    normalizeText(r?.title) ||
+    normalizeText(r?.remark) ||
+    normalizeText(r?.note) ||
+    normalizeText(r?.desc) ||
+    normalizeText(r?.description) ||
+    normalizeText(r?.reason) ||
+    normalizeText(r?.memo)
+  if (explicit) return explicit
+
+  if (type === 'pay') return '发布任务扣款'
+  if (type === 'income') return '完成任务获得收益'
+  if (type === 'refund') return '取消订单退款'
+  if (type === 'recharge') return '充值'
+  if (type === 'withdraw') return '提现'
+  return '-'
 }
 
 function formatMoney(v: unknown) {
@@ -165,7 +205,9 @@ function toVM(r: WalletLogRaw, idx: number): WalletLogVM {
   let balanceAfter = normalizeNumber(afterRaw, NaN)
   let amount = normalizeNumber(deltaRaw, NaN)
 
-  if (!Number.isFinite(amount) && Number.isFinite(balanceBefore) && Number.isFinite(balanceAfter)) {
+  const hasBalancePair = Number.isFinite(balanceBefore) && Number.isFinite(balanceAfter)
+
+  if (hasBalancePair) {
     amount = balanceAfter - balanceBefore
   }
   if (!Number.isFinite(balanceBefore) && Number.isFinite(balanceAfter) && Number.isFinite(amount)) {
@@ -173,6 +215,11 @@ function toVM(r: WalletLogRaw, idx: number): WalletLogVM {
   }
   if (!Number.isFinite(balanceAfter) && Number.isFinite(balanceBefore) && Number.isFinite(amount)) {
     balanceAfter = balanceBefore + amount
+  }
+
+  if (Number.isFinite(amount) && !hasBalancePair) {
+    if (type === 'pay' || type === 'withdraw') amount = -Math.abs(amount)
+    if (type === 'recharge' || type === 'income' || type === 'refund') amount = Math.abs(amount)
   }
 
   const orderNoRaw = r?.order_no ?? r?.orderNo ?? r?.order_sn ?? r?.orderSn ?? r?.order_id ?? r?.orderId
@@ -183,6 +230,7 @@ function toVM(r: WalletLogRaw, idx: number): WalletLogVM {
   return {
     id: normalizeId(r, idx),
     type,
+    title: deriveTitle(type, r),
     amount: Number.isFinite(amount) ? amount : 0,
     balanceBefore: Number.isFinite(balanceBefore) ? balanceBefore : undefined,
     balanceAfter: Number.isFinite(balanceAfter) ? balanceAfter : undefined,
@@ -215,6 +263,24 @@ const pageItems = computed<(number | '...')[]>(() => {
   return items
 })
 
+async function requestLogs(params: Record<string, any>) {
+  const endpoints = ['/wallet/log', '/wallet/logs', '/wallet/log/list', '/wallet/logs/list']
+  let lastErr: any
+  for (const url of endpoints) {
+    try {
+      return await http.get(url, { params })
+    } catch (err: any) {
+      const status = err?.response?.status
+      if (status === 404 || status === 405) {
+        lastErr = err
+        continue
+      }
+      throw err
+    }
+  }
+  throw lastErr
+}
+
 async function fetchLogs() {
   loading.value = true
   errorMessage.value = ''
@@ -244,7 +310,7 @@ async function fetchLogs() {
       params.end_time = end
     }
 
-    const res = await http.get('/wallet/log', { params })
+    const res = await requestLogs(params)
     const normalized = normalizeListResponse(res.data)
     rows.value = normalized.list.map(toVM)
     total.value = normalized.total
@@ -252,7 +318,7 @@ async function fetchLogs() {
     const tp = Math.max(1, Math.ceil(normalized.total / pagination.pageSize))
     if (pagination.page > tp) {
       pagination.page = tp
-      const res2 = await http.get('/wallet/log', { params: { ...params, page: pagination.page } })
+      const res2 = await requestLogs({ ...params, page: pagination.page })
       const normalized2 = normalizeListResponse(res2.data)
       rows.value = normalized2.list.map(toVM)
       total.value = normalized2.total
@@ -364,6 +430,7 @@ onMounted(() => {
             <thead>
               <tr>
                 <th class="text-nowrap">类型</th>
+                <th class="text-nowrap">说明</th>
                 <th class="text-nowrap">金额</th>
                 <th class="text-nowrap">余额变化</th>
                 <th class="text-nowrap">关联订单</th>
@@ -372,10 +439,11 @@ onMounted(() => {
             </thead>
             <tbody>
               <tr v-if="rows.length === 0">
-                <td colspan="5" class="text-muted text-center py-4">暂无数据</td>
+                <td colspan="6" class="text-muted text-center py-4">暂无数据</td>
               </tr>
               <tr v-for="r in rows" :key="r.id">
-                <td class="fw-semibold text-nowrap">{{ typeLabel(r.type) }}</td>
+                <td class="text-nowrap"><span :class="typeBadgeClass(r.type)">{{ typeLabel(r.type) }}</span></td>
+                <td class="text-nowrap">{{ r.title }}</td>
                 <td class="text-nowrap" :class="r.amount >= 0 ? 'text-success' : 'text-danger'">
                   {{ formatAmount(r.amount) }}
                 </td>
