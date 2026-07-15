@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 import { http } from '@/api/request'
 import { listTasks, type TaskListItem } from '@/api/task'
@@ -19,6 +19,12 @@ const loading = ref(false)
 const errorMessage = ref('')
 const rows = ref<TaskListItem[]>([])
 const total = ref(0)
+const autoCancelTimeoutMinutes = ref(0)
+const countdownNow = ref(Date.now())
+const autoCancelDeadlineMap = ref<Record<string, number | null>>({})
+
+let countdownTimer: number | null = null
+let lastExpiredRefreshAt = 0
 
 const pagination = reactive({
   page: 1,
@@ -26,10 +32,6 @@ const pagination = reactive({
 })
 
 const busyAcceptTaskId = ref<string | number | null>(null)
-
-const location = reactive<{ lat?: number; lng?: number }>({})
-
-const simulatedDistanceCache = new Map<string, number>()
 
 const totalPages = computed(() => {
   const t = Math.max(0, Number(total.value) || 0)
@@ -40,6 +42,7 @@ const totalPages = computed(() => {
 const canPrev = computed(() => pagination.page > 1 && !loading.value)
 const canNext = computed(() => pagination.page < totalPages.value && !loading.value)
 const isRunner = computed(() => auth.role === 'runner')
+const isFrozen = computed(() => Boolean(auth.isFrozen))
 
 function isPendingTask(task: TaskListItem) {
   const status = String((task as any)?.status ?? '').trim()
@@ -118,6 +121,89 @@ function formatTime(v: unknown) {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
 }
 
+function normalizeNumber(v: unknown) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
+  const s = normalizeText(v)
+  if (!s) return null
+  const n = Number(s)
+  return Number.isFinite(n) ? n : null
+}
+
+function toTimestampMs(v: unknown) {
+  if (v instanceof Date) {
+    const time = v.getTime()
+    return Number.isFinite(time) ? time : null
+  }
+
+  const n = normalizeNumber(v)
+  if (n !== null) {
+    if (n <= 0) return null
+    return n >= 1e12 ? Math.round(n) : Math.round(n * 1000)
+  }
+
+  const raw = normalizeText(v)
+  if (!raw) return null
+  const d = new Date(raw)
+  const time = d.getTime()
+  return Number.isFinite(time) ? time : null
+}
+
+function normalizeConfigPayload(data: any): Record<string, any> {
+  const root = data?.data ?? data
+  if (Array.isArray(root?.items)) {
+    const map: Record<string, any> = {}
+    root.items.forEach((item: any) => {
+      const key = String(item?.key ?? item?.name ?? '').trim()
+      if (key) map[key] = item?.value
+    })
+    return map
+  }
+  if (root && typeof root === 'object' && !Array.isArray(root)) return root
+  return {}
+}
+
+function flattenObject(input: any, prefix = '', out: Record<string, any> = {}) {
+  if (!input || typeof input !== 'object') return out
+  const entries = Array.isArray(input) ? input.entries() : Object.entries(input)
+  for (const e of entries as any) {
+    const key = Array.isArray(input) ? String(e[0]) : String(e[0])
+    const value = Array.isArray(input) ? e[1] : e[1]
+    const nextKey = prefix ? `${prefix}.${key}` : key
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      flattenObject(value, nextKey, out)
+    } else {
+      out[nextKey] = value
+    }
+  }
+  return out
+}
+
+function pickConfigNumber(flat: Record<string, any>, candidates: string[], fallback = 0) {
+  for (const key of candidates) {
+    if (Object.prototype.hasOwnProperty.call(flat, key)) {
+      const n = normalizeNumber(flat[key])
+      return n === null ? fallback : n
+    }
+  }
+  return fallback
+}
+
+async function loadTimeoutConfig() {
+  try {
+    const response = await http.get('/config/public')
+    const configMap = normalizeConfigPayload(response.data)
+    const flat = flattenObject(configMap)
+    autoCancelTimeoutMinutes.value = pickConfigNumber(
+      flat,
+      ['pending_accept_minutes', 'pendingAcceptMinutes', 'timeout.pending_accept_minutes'],
+      0,
+    )
+    syncAutoCancelDeadlines(rows.value)
+  } catch {
+    autoCancelTimeoutMinutes.value = 0
+  }
+}
+
 function toTotalPrice(task: TaskListItem) {
   const fee = Number((task as any).fee_total ?? (task as any).fee ?? 0)
   const tip = Number((task as any).tip ?? 0)
@@ -125,75 +211,28 @@ function toTotalPrice(task: TaskListItem) {
   return totalPrice
 }
 
+// 计算取件点到送达点的距离（Haversine 公式）
 function getTaskDistance(task: TaskListItem): number | null {
-  const direct = Number((task as any).distance)
-  if (Number.isFinite(direct) && direct >= 0) {
-    const normalizedMeters = direct < 100 ? direct * 1000 : direct
-    return normalizedMeters
+  const pickupLat = Number((task as any).pickup_lat ?? (task as any).pickupLat)
+  const pickupLng = Number((task as any).pickup_lng ?? (task as any).pickupLng)
+  const deliveryLat = Number((task as any).delivery_lat ?? (task as any).deliveryLat)
+  const deliveryLng = Number((task as any).delivery_lng ?? (task as any).deliveryLng)
+
+  if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng) ||
+      !Number.isFinite(deliveryLat) || !Number.isFinite(deliveryLng)) {
+    return null
   }
-
-  const lat = Number(
-    (task as any).lat ??
-      (task as any).pickup_lat ??
-      (task as any).pickupLat ??
-      (task as any).pickupLatitude ??
-      (task as any).latitude,
-  )
-  const lng = Number(
-    (task as any).lng ??
-      (task as any).pickup_lng ??
-      (task as any).pickupLng ??
-      (task as any).pickupLongitude ??
-      (task as any).longitude,
-  )
-
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
-  if (!Number.isFinite(Number(location.lat)) || !Number.isFinite(Number(location.lng))) return null
-  const aLat = Number(location.lat)
-  const aLng = Number(location.lng)
-  const bLat = lat
-  const bLng = lng
 
   const rad = (deg: number) => (deg * Math.PI) / 180
-  const R = 6371000
-  const dLat = rad(bLat - aLat)
-  const dLng = rad(bLng - aLng)
-  const s1 = Math.sin(dLat / 2)
-  const s2 = Math.sin(dLng / 2)
-  const c = s1 * s1 + Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * s2 * s2
-  const dist = 2 * R * Math.asin(Math.min(1, Math.sqrt(c)))
+  const R = 6371000 // 地球半径（米）
+  const dLat = rad(deliveryLat - pickupLat)
+  const dLng = rad(deliveryLng - pickupLng)
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(rad(pickupLat)) * Math.cos(rad(deliveryLat)) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  const dist = R * c
   return Number.isFinite(dist) ? dist : null
-}
-
-function hashStringToUint32(s: string) {
-  let h = 2166136261
-  for (let i = 0; i < s.length; i += 1) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return h >>> 0
-}
-
-function pseudoRandom01(seed: number) {
-  let t = seed + 0x6d2b79f5
-  t = Math.imul(t ^ (t >>> 15), t | 1)
-  t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-}
-
-function getSimulatedDistanceMeters(task: TaskListItem) {
-  const dist = getTaskDistance(task)
-  if (Number.isFinite(Number(dist)) && (dist as number) >= 0) return Number(dist)
-
-  const key = taskKeyOf(task) || taskIdOf(task) || 'task'
-  const cached = simulatedDistanceCache.get(key)
-  if (cached !== undefined) return cached
-
-  const r = pseudoRandom01(hashStringToUint32(key))
-  const km = 1 + r * 4
-  const meters = Math.round(km * 1000)
-  simulatedDistanceCache.set(key, meters)
-  return meters
 }
 
 function formatDistanceMeters(v: number | null) {
@@ -220,7 +259,8 @@ function formatEtaMinutes(v: number | null) {
 }
 
 function getTaskEtaMinutes(task: TaskListItem) {
-  return toEtaMinutesByMeters(getSimulatedDistanceMeters(task))
+  const dist = getTaskDistance(task)
+  return toEtaMinutesByMeters(dist)
 }
 
 function sortKeyForApi(sort: SortOption) {
@@ -230,16 +270,136 @@ function sortKeyForApi(sort: SortOption) {
   return 'fee_total_asc'
 }
 
+function resolveAutoCancelDeadlineMs(task: TaskListItem, nowMs = Date.now()) {
+  const absoluteCandidates = [
+    (task as any)?.auto_cancel_at,
+    (task as any)?.autoCancelAt,
+    (task as any)?.cancel_at,
+    (task as any)?.cancelAt,
+    (task as any)?.expire_at,
+    (task as any)?.expireAt,
+    (task as any)?.expires_at,
+    (task as any)?.expiresAt,
+    (task as any)?.deadline_at,
+    (task as any)?.deadlineAt,
+    (task as any)?.pending_expire_at,
+    (task as any)?.pendingExpireAt,
+  ]
+
+  for (const candidate of absoluteCandidates) {
+    const ts = toTimestampMs(candidate)
+    if (ts !== null) return ts
+  }
+
+  const remainingSecondsCandidates = [
+    (task as any)?.auto_cancel_remaining_seconds,
+    (task as any)?.autoCancelRemainingSeconds,
+    (task as any)?.remaining_seconds,
+    (task as any)?.remainingSeconds,
+    (task as any)?.remain_seconds,
+    (task as any)?.remainSeconds,
+  ]
+
+  for (const candidate of remainingSecondsCandidates) {
+    const seconds = normalizeNumber(candidate)
+    if (seconds !== null && seconds >= 0) return nowMs + seconds * 1000
+  }
+
+  const remainingMinutesCandidates = [
+    (task as any)?.auto_cancel_remaining_minutes,
+    (task as any)?.autoCancelRemainingMinutes,
+    (task as any)?.remaining_minutes,
+    (task as any)?.remainingMinutes,
+    (task as any)?.remain_minutes,
+    (task as any)?.remainMinutes,
+  ]
+
+  for (const candidate of remainingMinutesCandidates) {
+    const minutes = normalizeNumber(candidate)
+    if (minutes !== null && minutes >= 0) return nowMs + minutes * 60 * 1000
+  }
+
+  const createdAtMs = toTimestampMs((task as any)?.created_at ?? (task as any)?.createdAt)
+  if (createdAtMs !== null && autoCancelTimeoutMinutes.value > 0) {
+    return createdAtMs + autoCancelTimeoutMinutes.value * 60 * 1000
+  }
+
+  return null
+}
+
+function syncAutoCancelDeadlines(list: TaskListItem[]) {
+  const nowMs = Date.now()
+  const next: Record<string, number | null> = {}
+  list.forEach((task) => {
+    next[taskKeyOf(task)] = resolveAutoCancelDeadlineMs(task, nowMs)
+  })
+  autoCancelDeadlineMap.value = next
+}
+
+function getTaskAutoCancelDeadlineMs(task: TaskListItem) {
+  const key = taskKeyOf(task)
+  const deadline = autoCancelDeadlineMap.value[key]
+  return typeof deadline === 'number' && Number.isFinite(deadline) ? deadline : null
+}
+
+function getTaskAutoCancelRemainingMs(task: TaskListItem) {
+  const deadline = getTaskAutoCancelDeadlineMs(task)
+  if (deadline === null) return null
+  return Math.max(0, deadline - countdownNow.value)
+}
+
+function isTaskAutoExpired(task: TaskListItem) {
+  const deadline = getTaskAutoCancelDeadlineMs(task)
+  return deadline !== null && deadline <= countdownNow.value
+}
+
+function formatAutoCancelCountdown(task: TaskListItem) {
+  const remainingMs = getTaskAutoCancelRemainingMs(task)
+  if (remainingMs === null) return '—'
+  if (remainingMs <= 0) return '0小时0分钟'
+
+  const totalMinutes = Math.ceil(remainingMs / 60000)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  return `${hours}小时${minutes}分钟`
+}
+
+function refreshExpiredTasksIfNeeded() {
+  if (loading.value) return
+  if (!rows.value.some(isTaskAutoExpired)) return
+
+  const nowMs = Date.now()
+  if (nowMs - lastExpiredRefreshAt < 5000) return
+  lastExpiredRefreshAt = nowMs
+
+  fetchList()
+}
+
+function startCountdownTimer() {
+  if (countdownTimer !== null) return
+  countdownTimer = window.setInterval(() => {
+    countdownNow.value = Date.now()
+    refreshExpiredTasksIfNeeded()
+  }, 1000)
+}
+
+function stopCountdownTimer() {
+  if (countdownTimer === null) return
+  window.clearInterval(countdownTimer)
+  countdownTimer = null
+}
+
 const displayRows = computed(() => {
+  const activeRows = rows.value.filter((t) => !isTaskAutoExpired(t))
   const keyword = filters.keyword.trim().toLowerCase()
   const filtered = keyword
-    ? rows.value.filter((t) => {
+    ? activeRows.filter((t) => {
         const pickup = normalizeText((t as any).pickup_address ?? (t as any).pickupAddress).toLowerCase()
         const delivery = normalizeText((t as any).delivery_address ?? (t as any).deliveryAddress).toLowerCase()
         const remark = normalizeText((t as any).remark ?? (t as any).note).toLowerCase()
         return pickup.includes(keyword) || delivery.includes(keyword) || remark.includes(keyword)
       })
-    : rows.value.slice()
+    : activeRows.slice()
 
   const sorted = filtered.slice().sort((a, b) => {
     if (filters.sort === 'time_desc' || filters.sort === 'time_asc') {
@@ -258,31 +418,12 @@ const displayRows = computed(() => {
   return sorted
 })
 
-async function ensureGeolocation() {
-  if (!('geolocation' in navigator)) return
-  if (Number.isFinite(Number(location.lat)) && Number.isFinite(Number(location.lng))) return
-
-  await new Promise<void>((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        location.lat = pos.coords.latitude
-        location.lng = pos.coords.longitude
-        resolve()
-      },
-      () => resolve(),
-      { timeout: 6000, maximumAge: 60_000, enableHighAccuracy: false },
-    )
-  })
-}
-
 async function fetchList() {
   if (loading.value) return
   loading.value = true
   errorMessage.value = ''
 
   try {
-    await ensureGeolocation()
-
     const query: Record<string, any> = {
       page: pagination.page,
       pageSize: pagination.pageSize,
@@ -291,17 +432,13 @@ async function fetchList() {
       sort: sortKeyForApi(filters.sort),
     }
 
-    if (Number.isFinite(Number(location.lat)) && Number.isFinite(Number(location.lng))) {
-      query.lat = Number(location.lat)
-      query.lng = Number(location.lng)
-    }
-
     const res = await listTasks(query as any)
     const list = res.list || []
     const hasStatusField = list.some((t) => String((t as any)?.status ?? '').trim().length > 0)
     const hasNonPending = hasStatusField && list.some((t) => !isPendingTask(t))
     const finalList = hasNonPending ? list.filter(isPendingTask) : list
     rows.value = finalList
+    syncAutoCancelDeadlines(finalList)
     total.value = hasNonPending ? finalList.length : Number(res.total ?? finalList.length) || 0
   } catch (err: any) {
     errorMessage.value = getErrorMessage(err)
@@ -324,6 +461,10 @@ function resetFilters() {
 
 async function accept(id: string | number) {
   if (!isRunner.value) return
+  if (isFrozen.value) {
+    ElMessage.warning('账号已冻结，无法抢单')
+    return
+  }
   if (busyAcceptTaskId.value !== null) return
 
   const token = String(auth.token || localStorage.getItem('ce_token') || '').trim()
@@ -367,7 +508,12 @@ function nextPage() {
 }
 
 onMounted(() => {
-  fetchList()
+  startCountdownTimer()
+  void Promise.allSettled([loadTimeoutConfig(), fetchList()])
+})
+
+onBeforeUnmount(() => {
+  stopCountdownTimer()
 })
 </script>
 
@@ -442,17 +588,18 @@ onMounted(() => {
                   </div>
                   <div v-if="(t as any).remark" class="text-muted small">备注：{{ (t as any).remark }}</div>
                   <div class="text-muted small">发布时间：{{ formatTime((t as any).created_at || (t as any).createdAt) }}</div>
+                  <div class="text-warning small">自动取消：{{ formatAutoCancelCountdown(t) }}</div>
                 </div>
 
                 <div class="text-end">
                   <div class="fw-semibold fs-5">¥{{ formatMoney(toTotalPrice(t)) }}</div>
-                  <div class="text-muted small">距离：{{ formatDistanceMeters(getSimulatedDistanceMeters(t)) }}</div>
+                  <div class="text-muted small">距离：{{ formatDistanceMeters(getTaskDistance(t)) }}</div>
                   <div class="text-muted small">预计送达：{{ formatEtaMinutes(getTaskEtaMinutes(t)) }}</div>
                   <button
                     v-if="isRunner"
                     class="btn btn-primary btn-sm mt-2"
                     type="button"
-                    :disabled="loading || busyAcceptTaskId !== null"
+                    :disabled="loading || busyAcceptTaskId !== null || isFrozen"
                     @click="accept(taskIdOf(t))"
                   >
                     <span

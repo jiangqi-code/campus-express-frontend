@@ -1,19 +1,28 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>campus-express-web1</title>
-    <script type="text/javascript">
-      window._AMapSecurityConfig = {
-        securityJsCode: 'a5951757750443a1580ed6a4db03ecf5',
-      }
-    </script>
-    <script src="https://webapi.amap.com/maps?v=2.0&key=f977a58a3a9cc261b072364616917be1"></script>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>校园跑腿管理系统</title>
+
+  <!-- 1. 高德地图安全配置 (必须与下方 Key 配套) -->
+  <script type="text/javascript">
+    window._AMapSecurityConfig = {
+      securityJsCode: 'a5951757750443a1580ed6a4db03ecf5'
+    };
+  </script>
+
+  <!-- 2. 引入高德地图核心 JS API，并在此处直接声明所需插件（正确方式） -->
+  <script
+    src="https://webapi.amap.com/maps?v=2.0&key=f977a58a3a9cc261b072364616917be1&plugin=AMap.Geocoder,AMap.ToolBar,AMap.Geolocation,AMap.AutoComplete,AMap.PlaceSearch,AMap.Driving,AMap.Heatmap,AMap.Scale"></script>
+
+</head>
+
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
 </html>

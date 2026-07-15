@@ -85,6 +85,11 @@ function resolvePhotoUrl(raw: unknown) {
   return `http://localhost:3000/${v}`
 }
 
+function showText(raw: unknown) {
+  const v = String(raw ?? '').trim()
+  return v ? v : '-'
+}
+
 async function fetchList() {
   loading.value = true
   errorMessage.value = ''
@@ -276,7 +281,17 @@ onMounted(() => {
     <el-dialog v-model="detailDialogVisible" title="申请详情" width="720px" :close-on-click-modal="false" @close="closeDetail">
       <el-descriptions :column="1" border>
         <el-descriptions-item label="申请人姓名">{{ detailRow?.applicantName || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="学号">{{ showText(detailRow?.studentId) }}</el-descriptions-item>
+        <el-descriptions-item label="手机号">{{ showText(detailRow?.phone) }}</el-descriptions-item>
+        <el-descriptions-item label="身份证号">{{ showText(detailRow?.idCardNo) }}</el-descriptions-item>
+        <el-descriptions-item label="宿舍楼栋">{{ showText(detailRow?.dormBuilding) }}</el-descriptions-item>
+        <el-descriptions-item label="申请理由">
+          <div style="white-space: pre-wrap">{{ showText(detailRow?.applyReason) }}</div>
+        </el-descriptions-item>
         <el-descriptions-item label="申请时间">{{ formatTime(detailRow?.appliedAt) }}</el-descriptions-item>
+        <el-descriptions-item v-if="normalizeStatusUpper(detailRow?.status) === 'REJECTED'" label="拒绝原因">
+          <div style="white-space: pre-wrap">{{ showText(detailRow?.rejectReason) }}</div>
+        </el-descriptions-item>
         <el-descriptions-item label="校园卡照片">
           <el-image
             v-if="resolvePhotoUrl(detailRow?.card_image_url)"

@@ -93,7 +93,7 @@ const greeting = computed(() => {
               <RouterLink class="btn btn-outline-primary" to="/tasks">发布/接单</RouterLink>
               <RouterLink class="btn btn-outline-primary" to="/me/profile">完善资料</RouterLink>
               <RouterLink v-if="auth.role === 'admin'" class="btn btn-outline-primary" to="/admin/dashboard">进入管理后台</RouterLink>
-              <RouterLink v-if="auth.role === 'runner'" class="btn btn-outline-primary" to="/runner/earnings">查看收入</RouterLink>
+              <RouterLink v-if="auth.role === 'runner'" class="btn btn-outline-primary" to="/runner/earnings">我的信用</RouterLink>
             </div>
           </div>
         </div>

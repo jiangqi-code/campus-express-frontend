@@ -125,7 +125,7 @@ export const completeOrder = (orderId: string) =>
   http.put(`/order/complete/${encodeURIComponent(orderId)}`)
 
 export const cancelOrder = (orderId: string) =>
-  http.put(`/order/cancel/${encodeURIComponent(orderId)}`)
+  http.put(`/order/${encodeURIComponent(orderId)}/cancel`)
 
 export const confirmOrder = (orderId: string) =>
   http.post(`/order/confirm/${encodeURIComponent(orderId)}`)
@@ -137,12 +137,15 @@ export type OrderReviewPayload = {
   rating: number
   tags: string[]
   content: string
+  images: string[]
 }
 
-export async function reviewOrder(id: string, payload: OrderReviewPayload) {
-  const response = await http.post(`/order/review/${encodeURIComponent(id)}`, payload)
+export async function submitOrderReview(id: string, payload: OrderReviewPayload) {
+  const response = await http.post(`/order/${encodeURIComponent(id)}/review`, payload)
   return response.data
 }
+
+export const reviewOrder = submitOrderReview
 
 
 export async function saveDeliveryPhoto(id: string, deliveryPhotoUrl: string) {

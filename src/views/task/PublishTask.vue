@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
 import type { UploadFile, UploadFiles, UploadUserFile } from 'element-plus'
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { baseURL, http } from '@/api/request'
+import { useAuthStore } from '@/stores/auth'
 
 type ItemType = '快递' | '餐饮' | '文件' | '药品'
 
 const router = useRouter()
+const auth = useAuthStore()
+const isFrozen = computed(() => Boolean(auth.isFrozen))
 const IMAGE_BASE_URL = 'http://localhost:3000'
 const uploadAction = `${baseURL}/upload/image`
 const AMAP_KEY = '8476ce87e366c5936788fe2a47fc26ad'
@@ -22,7 +25,6 @@ const form = reactive({
   delivery_lat: null as number | null,
   delivery_lng: null as number | null,
   type: '' as '' | ItemType,
-  fee_total: 0,
   urgency: 0 as 0 | 1,
   tip: 0,
   remark: '',
@@ -39,6 +41,20 @@ const selecting = ref<null | 'pickup' | 'delivery'>(null)
 const mapReady = ref(false)
 const mapLoading = ref(false)
 const mapErrorMessage = ref('')
+const pricingLoading = ref(false)
+const pricingLoaded = ref(false)
+const pricingErrorMessage = ref('')
+const distanceLoading = ref(false)
+const distanceErrorMessage = ref('')
+const routeDistanceMeters = ref<number | null>(null)
+const routeDurationSeconds = ref<number | null>(null)
+const pricingConfig = reactive({
+  base_delivery_fee: 0,
+  distance_price_per_km: 0,
+  urgent_fee: 0,
+  ai_pricing_enabled: false,
+  allow_user_price_adjust: false,
+})
 let AMap: any
 let map: any
 let geocoder: any
@@ -47,11 +63,13 @@ let pickupMarker: any
 let deliveryMarker: any
 let autoComplete: any
 let placeSearch: any
+let distanceCalcSeq = 0
 const myLocation = ref<null | { lng: number; lat: number }>(null)
 const locating = ref(false)
 const searchKeyword = ref('')
 
 const uploading = computed(() => fileList.value.some((f) => f.status === 'uploading'))
+const formDisabled = computed(() => submitting.value || uploading.value || isFrozen.value)
 const uploadHeaders = computed<Record<string, string>>(() => {
   const token = localStorage.getItem('ce_token')
   return token ? { Authorization: `Bearer ${token}` } : ({} as Record<string, string>)
@@ -65,6 +83,394 @@ function getErrorMessage(err: any) {
     err?.message ||
     '操作失败'
   )
+}
+
+function normalizeNumber(value: unknown, fallback = 0) {
+  const n = typeof value === 'number' ? value : Number(String(value ?? '').trim())
+  return Number.isFinite(n) ? n : fallback
+}
+
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100
+}
+
+function formatMoney(value: number | null | undefined) {
+  return roundMoney(normalizeNumber(value, 0)).toFixed(2)
+}
+
+function formatDistanceMeters(value: number | null) {
+  if (!Number.isFinite(Number(value)) || Number(value) <= 0) return '待计算'
+  const meters = Number(value)
+  if (meters < 1000) return `${Math.round(meters)} m`
+  return `${(meters / 1000).toFixed(2)} km`
+}
+
+function flattenObject(input: any, prefix = '', out: Record<string, any> = {}) {
+  if (!input || typeof input !== 'object') return out
+  const entries = Array.isArray(input) ? input.entries() : Object.entries(input)
+  for (const entry of entries as any) {
+    const key = Array.isArray(input) ? String(entry[0]) : String(entry[0])
+    const value = Array.isArray(input) ? entry[1] : entry[1]
+    const nextKey = prefix ? `${prefix}.${key}` : key
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      flattenObject(value, nextKey, out)
+    } else {
+      out[nextKey] = value
+    }
+  }
+  return out
+}
+
+function normalizeConfigPayload(data: any): Record<string, any> {
+  const root = data?.data ?? data ?? {}
+  if (Array.isArray(root)) {
+    const map: Record<string, any> = {}
+    root.forEach((item) => {
+      const key = String(item?.key ?? item?.name ?? '').trim()
+      if (key) map[key] = item?.value
+    })
+    return map
+  }
+  if (Array.isArray(root?.items)) {
+    const map: Record<string, any> = {}
+    root.items.forEach((item: any) => {
+      const key = String(item?.key ?? item?.name ?? '').trim()
+      if (key) map[key] = item?.value
+    })
+    return map
+  }
+  return root && typeof root === 'object' ? root : {}
+}
+
+function pickConfigNumber(flat: Record<string, any>, candidates: string[], fallback = 0) {
+  for (const key of candidates) {
+    if (Object.prototype.hasOwnProperty.call(flat, key)) {
+      return normalizeNumber(flat[key], fallback)
+    }
+  }
+  return fallback
+}
+
+function pickConfigBool(flat: Record<string, any>, candidates: string[], fallback = false) {
+  for (const key of candidates) {
+    if (!Object.prototype.hasOwnProperty.call(flat, key)) continue
+    const raw = flat[key]
+    if (typeof raw === 'boolean') return raw
+    const s = String(raw ?? '').trim().toLowerCase()
+    if (['1', 'true', 'yes', 'y', 'on', 'enabled'].includes(s)) return true
+    if (['0', 'false', 'no', 'n', 'off', 'disabled'].includes(s)) return false
+    const n = Number(s)
+    if (Number.isFinite(n)) return n !== 0
+  }
+  return fallback
+}
+
+async function loadPricingConfig() {
+  pricingLoading.value = true
+  pricingErrorMessage.value = ''
+  try {
+    const response = await http.get('/config/public')
+    const configMap = normalizeConfigPayload(response.data)
+    const flat = flattenObject(configMap)
+    pricingConfig.base_delivery_fee = pickConfigNumber(flat, ['base_delivery_fee', 'baseDeliveryFee', 'fee.base_delivery_fee'], 0)
+    pricingConfig.distance_price_per_km = pickConfigNumber(
+      flat,
+      ['distance_price_per_km', 'distancePricePerKm', 'fee.distance_price_per_km'],
+      0,
+    )
+    pricingConfig.urgent_fee = pickConfigNumber(flat, ['urgent_fee', 'urgentFee', 'fee.urgent_fee'], 0)
+    pricingConfig.ai_pricing_enabled = pickConfigBool(flat, ['ai_pricing_enabled', 'aiPricingEnabled', 'pricing.ai_pricing_enabled'], false)
+    pricingConfig.allow_user_price_adjust = pickConfigBool(
+      flat,
+      ['allow_user_price_adjust', 'allowUserPriceAdjust', 'pricing.allow_user_price_adjust'],
+      false,
+    )
+    pricingLoaded.value = true
+  } catch (err: any) {
+    pricingLoaded.value = false
+    pricingErrorMessage.value = getErrorMessage(err) || '配送费配置加载失败'
+  } finally {
+    pricingLoading.value = false
+  }
+}
+
+function resetDistanceResult() {
+  routeDistanceMeters.value = null
+  routeDurationSeconds.value = null
+  distanceErrorMessage.value = ''
+}
+
+const distanceKm = computed(() => {
+  if (!Number.isFinite(Number(routeDistanceMeters.value)) || Number(routeDistanceMeters.value) <= 0) return 0
+  return Number(routeDistanceMeters.value) / 1000
+})
+
+const baseFeeAmount = computed(() => roundMoney(pricingConfig.base_delivery_fee))
+const distanceFeeAmount = computed(() => roundMoney(distanceKm.value * pricingConfig.distance_price_per_km))
+const urgentFeeAmount = computed(() => (form.urgency === 1 ? roundMoney(pricingConfig.urgent_fee) : 0))
+const tipAmount = computed(() => roundMoney(normalizeNumber(form.tip, 0)))
+
+type PricingBreakdown = {
+  base_fee: number
+  distance_fee: number
+  time_fee: number
+  weather_fee: number
+  urgent_fee: number
+}
+
+type PricingCalculateResult = {
+  delivery_fee: number
+  breakdown: PricingBreakdown
+  raw: any
+}
+
+const aiPricingLoading = ref(false)
+const aiPricingErrorMessage = ref('')
+const aiPricingResult = ref<PricingCalculateResult | null>(null)
+const userAdjustedDeliveryFee = ref<number | null>(null)
+let pricingCalcSeq = 0
+let pricingDebounceTimer: number | null = null
+
+function normalizePricingCalculateResponse(data: any): PricingCalculateResult | null {
+  const root = data?.data ?? data?.result ?? data ?? {}
+  if (!root || typeof root !== 'object') return null
+
+  const breakdownRoot = root?.breakdown ?? root?.detail ?? root?.details ?? root?.items ?? root?.fee_detail ?? root ?? {}
+  const base_fee = normalizeNumber(
+    breakdownRoot?.base_fee ?? breakdownRoot?.baseFee ?? breakdownRoot?.base ?? breakdownRoot?.base_delivery_fee,
+    NaN,
+  )
+  const distance_fee = normalizeNumber(
+    breakdownRoot?.distance_fee ?? breakdownRoot?.distanceFee ?? breakdownRoot?.distance ?? breakdownRoot?.distance_amount,
+    NaN,
+  )
+  const time_fee = normalizeNumber(
+    breakdownRoot?.time_fee ?? breakdownRoot?.timeFee ?? breakdownRoot?.period_fee ?? breakdownRoot?.time_surcharge,
+    0,
+  )
+  const weather_fee = normalizeNumber(
+    breakdownRoot?.weather_fee ?? breakdownRoot?.weatherFee ?? breakdownRoot?.weather_surcharge ?? breakdownRoot?.weather,
+    0,
+  )
+  const urgent_fee = normalizeNumber(
+    breakdownRoot?.urgent_fee ?? breakdownRoot?.urgentFee ?? breakdownRoot?.urgent ?? breakdownRoot?.urgent_amount,
+    0,
+  )
+
+  const delivery_fee = normalizeNumber(
+    root?.delivery_fee ??
+      root?.fee ??
+      root?.total ??
+      root?.total_fee ??
+      root?.fee_total ??
+      root?.price ??
+      root?.amount,
+    NaN,
+  )
+
+  const safeBreakdown: PricingBreakdown = {
+    base_fee: Number.isFinite(base_fee) ? roundMoney(base_fee) : 0,
+    distance_fee: Number.isFinite(distance_fee) ? roundMoney(distance_fee) : 0,
+    time_fee: Number.isFinite(time_fee) ? roundMoney(time_fee) : 0,
+    weather_fee: Number.isFinite(weather_fee) ? roundMoney(weather_fee) : 0,
+    urgent_fee: Number.isFinite(urgent_fee) ? roundMoney(urgent_fee) : 0,
+  }
+
+  const computedTotal = roundMoney(
+    safeBreakdown.base_fee +
+      safeBreakdown.distance_fee +
+      safeBreakdown.time_fee +
+      safeBreakdown.weather_fee +
+      safeBreakdown.urgent_fee,
+  )
+
+  return {
+    delivery_fee: Number.isFinite(delivery_fee) ? roundMoney(delivery_fee) : computedTotal,
+    breakdown: safeBreakdown,
+    raw: root,
+  }
+}
+
+const breakdown = computed<PricingBreakdown>(() => {
+  if (aiPricingResult.value) return aiPricingResult.value.breakdown
+  return {
+    base_fee: baseFeeAmount.value,
+    distance_fee: distanceFeeAmount.value,
+    time_fee: 0,
+    weather_fee: 0,
+    urgent_fee: urgentFeeAmount.value,
+  }
+})
+
+const deliveryFeeAuto = computed(() => {
+  if (aiPricingResult.value) return roundMoney(aiPricingResult.value.delivery_fee)
+  return roundMoney(
+    breakdown.value.base_fee +
+      breakdown.value.distance_fee +
+      breakdown.value.time_fee +
+      breakdown.value.weather_fee +
+      breakdown.value.urgent_fee,
+  )
+})
+
+const canUserAdjustPrice = computed(() => Boolean(pricingConfig.allow_user_price_adjust))
+
+const deliveryFeeFinal = computed(() => {
+  if (canUserAdjustPrice.value && userAdjustedDeliveryFee.value != null) {
+    return roundMoney(normalizeNumber(userAdjustedDeliveryFee.value, deliveryFeeAuto.value))
+  }
+  return deliveryFeeAuto.value
+})
+
+const totalFeeAmount = computed(() => roundMoney(deliveryFeeFinal.value + tipAmount.value))
+
+function resetAiPricing() {
+  aiPricingResult.value = null
+  aiPricingErrorMessage.value = ''
+  aiPricingLoading.value = false
+  pricingCalcSeq += 1
+}
+
+async function calculateAiPricing() {
+  if (
+    !pricingLoaded.value ||
+    pricingLoading.value ||
+    distanceLoading.value ||
+    form.pickup_lng == null ||
+    form.pickup_lat == null ||
+    form.delivery_lng == null ||
+    form.delivery_lat == null ||
+    !Number.isFinite(Number(routeDistanceMeters.value)) ||
+    Number(routeDistanceMeters.value) <= 0
+  ) {
+    resetAiPricing()
+    return
+  }
+
+  const seq = (pricingCalcSeq += 1)
+  aiPricingLoading.value = true
+  aiPricingErrorMessage.value = ''
+
+  const payload = {
+    pickup_address: form.pickup_address,
+    delivery_address: form.delivery_address,
+    pickup_lng: form.pickup_lng,
+    pickup_lat: form.pickup_lat,
+    delivery_lng: form.delivery_lng,
+    delivery_lat: form.delivery_lat,
+    distance_meters: Math.round(Number(routeDistanceMeters.value)),
+    task_type: form.type,
+    type: form.type,
+    urgency: form.urgency,
+    is_urgent: form.urgency === 1,
+  }
+
+  try {
+    const res = await http.post('/pricing/calculate', payload)
+    if (seq !== pricingCalcSeq) return
+    const normalized = normalizePricingCalculateResponse(res.data)
+    if (!normalized) throw new Error('定价响应解析失败')
+    aiPricingResult.value = normalized
+    aiPricingErrorMessage.value = ''
+  } catch (err1: any) {
+    if (seq !== pricingCalcSeq) return
+    const status = err1?.response?.status
+    const msg1 = getErrorMessage(err1)
+    if (status === 404) {
+      try {
+        const res2 = await http.post('/api/pricing/calculate', payload)
+        if (seq !== pricingCalcSeq) return
+        const normalized2 = normalizePricingCalculateResponse(res2.data)
+        if (!normalized2) throw new Error('定价响应解析失败')
+        aiPricingResult.value = normalized2
+        aiPricingErrorMessage.value = ''
+      } catch (err2: any) {
+        if (seq !== pricingCalcSeq) return
+        aiPricingResult.value = null
+        aiPricingErrorMessage.value = getErrorMessage(err2) || msg1 || 'AI 定价失败，已使用固定规则估算'
+      }
+    } else {
+      aiPricingResult.value = null
+      aiPricingErrorMessage.value = msg1 || 'AI 定价失败，已使用固定规则估算'
+    }
+  } finally {
+    if (seq === pricingCalcSeq) {
+      aiPricingLoading.value = false
+    }
+  }
+}
+
+function scheduleAiPricing() {
+  if (pricingDebounceTimer != null) {
+    window.clearTimeout(pricingDebounceTimer)
+  }
+  pricingDebounceTimer = window.setTimeout(() => {
+    pricingDebounceTimer = null
+    calculateAiPricing()
+  }, 350)
+}
+
+watch(
+  () => [
+    form.pickup_lng,
+    form.pickup_lat,
+    form.delivery_lng,
+    form.delivery_lat,
+    form.urgency,
+    form.type,
+    routeDistanceMeters.value,
+    pricingLoaded.value,
+  ],
+  () => scheduleAiPricing(),
+  { deep: false },
+)
+
+async function calculateRouteDistance() {
+  if (
+    form.pickup_lng == null ||
+    form.pickup_lat == null ||
+    form.delivery_lng == null ||
+    form.delivery_lat == null
+  ) {
+    resetDistanceResult()
+    return
+  }
+
+  const seq = (distanceCalcSeq += 1)
+
+  distanceLoading.value = true
+  distanceErrorMessage.value = ''
+
+  try {
+    // 修改这里：去掉 /api 前缀
+    const res = await http.post('/map/distance', {
+      origin_lat: form.pickup_lat,
+      origin_lng: form.pickup_lng,
+      destination_lat: form.delivery_lat,
+      destination_lng: form.delivery_lng
+    })
+    
+    if (seq !== distanceCalcSeq) return
+
+    const data = res.data
+    const distanceMeters = data?.distance_meters
+    
+    if (distanceMeters && Number(distanceMeters) > 0) {
+      routeDistanceMeters.value = Math.round(Number(distanceMeters))
+      routeDurationSeconds.value = data?.duration_seconds || null
+      distanceErrorMessage.value = ''
+    } else {
+      throw new Error('未获取到有效距离')
+    }
+  } catch (err: any) {
+    if (seq !== distanceCalcSeq) return
+    resetDistanceResult()
+    distanceErrorMessage.value = err?.response?.data?.error || err?.message || '距离计算失败'
+  } finally {
+    if (seq === distanceCalcSeq) {
+      distanceLoading.value = false
+    }
+  }
 }
 
 function normalizeUploadUrl(data: any): string {
@@ -141,7 +547,7 @@ function enterSelectMode(mode: 'pickup' | 'delivery') {
     return
   }
   selecting.value = mode
-  ElMessage.info(`请在地图上点击选择${mode === 'pickup' ? '取件点' : '送达点'}`)
+  ElMessage.info(`请在地图上点击选择${mode === 'pickup' ? '取件点' : '收货点'}`)
 }
 
 function createMarkerContent(mode: 'pickup' | 'delivery') {
@@ -184,19 +590,19 @@ async function applySelection(mode: 'pickup' | 'delivery', lng: number, lat: num
       pickupMarker.setPosition([lng, lat])
     }
     ElMessage.success('已设置取件点')
-    return
-  }
-
-  form.delivery_lng = lng
-  form.delivery_lat = lat
-  if (address) form.delivery_address = address
-  if (!deliveryMarker) {
-    deliveryMarker = new AMap.Marker({ position: [lng, lat], content: createMarkerContent('delivery') })
-    deliveryMarker.setMap(map)
   } else {
-    deliveryMarker.setPosition([lng, lat])
+    form.delivery_lng = lng
+    form.delivery_lat = lat
+    if (address) form.delivery_address = address
+    if (!deliveryMarker) {
+      deliveryMarker = new AMap.Marker({ position: [lng, lat], content: createMarkerContent('delivery') })
+      deliveryMarker.setMap(map)
+    } else {
+      deliveryMarker.setPosition([lng, lat])
+    }
+    ElMessage.success('已设置收货点')
   }
-  ElMessage.success('已设置送达点')
+  await calculateRouteDistance()
 }
 
 function pickModeForSelection() {
@@ -348,40 +754,27 @@ function loadAMapScript() {
   if (amapScriptPromise) return amapScriptPromise
 
   amapScriptPromise = new Promise((resolve, reject) => {
-    const timeoutMs = 15000
-    const startAt = Date.now()
-    const poll = () => {
-      const AMap = (window as any).AMap
-      if (AMap?.Map) {
-        resolve(AMap)
-        return
+    // 关键：在加载脚本前设置安全密钥
+    if (typeof window !== 'undefined') {
+      (window as any)._AMapSecurityConfig = {
+        securityJsCode: AMAP_SECURITY_JS_CODE
       }
-      if (Date.now() - startAt >= timeoutMs) {
-        reject(new Error(`AMap JSAPI 未加载（key=${AMAP_KEY}）`))
-        return
-      }
-      window.setTimeout(poll, 50)
-    }
-
-    try {
-      ;(window as any)._AMapSecurityConfig = { securityJsCode: AMAP_SECURITY_JS_CODE }
-    } catch {}
-
-    const scriptId = 'amap-jsapi'
-    const existing = document.getElementById(scriptId) as HTMLScriptElement | null
-    if (existing) {
-      poll()
-      return
     }
 
     const script = document.createElement('script')
-    script.id = scriptId
+    script.src = `https://webapi.amap.com/maps?v=2.0&key=${AMAP_KEY}&plugin=AMap.Geocoder,AMap.ToolBar,AMap.Geolocation,AMap.AutoComplete,AMap.PlaceSearch,AMap.Driving`
     script.async = true
     script.defer = true
-    script.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(AMAP_KEY)}`
+    script.onload = () => {
+      const AMap = (window as any).AMap
+      if (AMap && AMap.Map) {
+        resolve(AMap)
+      } else {
+        reject(new Error('AMap 加载失败'))
+      }
+    }
     script.onerror = () => reject(new Error('高德地图脚本加载失败'))
     document.head.appendChild(script)
-    poll()
   })
 
   return amapScriptPromise
@@ -397,12 +790,20 @@ function ensureAMapPlugins(AMap: any, plugins: string[]) {
 }
 
 onMounted(async () => {
+  void loadPricingConfig()
   mapLoading.value = true
   mapErrorMessage.value = ''
   mapReady.value = false
   try {
     AMap = await loadAMapScript()
-    await ensureAMapPlugins(AMap, ['AMap.Geocoder', 'AMap.ToolBar', 'AMap.Geolocation', 'AMap.AutoComplete', 'AMap.PlaceSearch'])
+    await ensureAMapPlugins(AMap, [
+      'AMap.Geocoder',
+      'AMap.ToolBar',
+      'AMap.Geolocation',
+      'AMap.AutoComplete',
+      'AMap.PlaceSearch',
+      'AMap.Driving',
+    ])
     await initMap()
   } catch (err: any) {
     mapReady.value = false
@@ -414,6 +815,11 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  if (pricingDebounceTimer != null) {
+    window.clearTimeout(pricingDebounceTimer)
+    pricingDebounceTimer = null
+  }
+  pricingCalcSeq += 1
   try {
     map?.destroy?.()
   } catch {}
@@ -433,19 +839,22 @@ onBeforeUnmount(() => {
 
 async function submit() {
   if (submitting.value || uploading.value) return
+  if (isFrozen.value) {
+    ElMessage.warning('账号已冻结，无法发布任务')
+    return
+  }
 
   const pickup_address = form.pickup_address.trim()
   const delivery_address = form.delivery_address.trim()
   const remark = form.remark.trim()
-
-  const fee_total = Number(form.fee_total)
   const tip = Number(form.tip)
-  if (!pickup_address) {
-    ElMessage.warning('请输入取件地址')
+
+  if (!pickup_address || form.pickup_lng == null || form.pickup_lat == null) {
+    ElMessage.warning('请先在地图上选择取件点')
     return
   }
-  if (!delivery_address) {
-    ElMessage.warning('请输入送达地址')
+  if (!delivery_address || form.delivery_lng == null || form.delivery_lat == null) {
+    ElMessage.warning('请先在地图上选择收货点')
     return
   }
   if (!form.type) {
@@ -456,8 +865,16 @@ async function submit() {
     ElMessage.warning('请选择时效')
     return
   }
-  if (!Number.isFinite(fee_total) || fee_total <= 0) {
-    ElMessage.warning('请输入正确的配送费')
+  if (pricingLoading.value || !pricingLoaded.value) {
+    ElMessage.warning('配送费配置加载中，请稍后再试')
+    return
+  }
+  if (distanceLoading.value) {
+    ElMessage.warning('距离计算中，请稍后再试')
+    return
+  }
+  if (!Number.isFinite(Number(routeDistanceMeters.value)) || Number(routeDistanceMeters.value) <= 0) {
+    ElMessage.warning('请先完成距离计算')
     return
   }
   if (!Number.isFinite(tip) || tip < 0) {
@@ -469,6 +886,8 @@ async function submit() {
     return
   }
 
+  const fee_total = roundMoney(deliveryFeeFinal.value)
+
   const payload = {
     pickup_address,
     delivery_address,
@@ -477,8 +896,9 @@ async function submit() {
     delivery_lat: form.delivery_lat,
     delivery_lng: form.delivery_lng,
     type: form.type,
-    fee_total,
     urgency: form.urgency,
+    is_urgent: form.urgency === 1,
+    fee_total,
     tip,
     remark,
     images_json: JSON.stringify(imagesList.value),
@@ -504,13 +924,49 @@ async function submit() {
     </div>
 
     <el-card>
+      <el-alert
+        v-if="isFrozen"
+        class="mb-3"
+        type="warning"
+        show-icon
+        :closable="false"
+        title="账号已冻结，暂不可发布任务。可点击页面顶部“申请解封”提交解封申请。"
+      />
+      <el-alert
+        v-if="pricingErrorMessage"
+        class="mb-3"
+        type="warning"
+        show-icon
+        :closable="false"
+        :title="pricingErrorMessage"
+      />
       <el-form label-width="90px" @submit.prevent>
-        <el-form-item label="取件地址" required>
-          <el-input v-model="form.pickup_address" placeholder="请输入取件地址" :disabled="submitting || uploading" />
+        <el-form-item label="取件点" required>
+          <div class="w-100">
+            <el-input
+              v-model="form.pickup_address"
+              readonly
+              placeholder="请通过高德地图选择取件点"
+              :disabled="formDisabled"
+            />
+            <div v-if="form.pickup_lng != null && form.pickup_lat != null" class="text-muted small mt-1">
+              坐标：{{ form.pickup_lng?.toFixed(6) }}, {{ form.pickup_lat?.toFixed(6) }}
+            </div>
+          </div>
         </el-form-item>
 
-        <el-form-item label="送达地址" required>
-          <el-input v-model="form.delivery_address" placeholder="请输入送达地址" :disabled="submitting || uploading" />
+        <el-form-item label="收货点" required>
+          <div class="w-100">
+            <el-input
+              v-model="form.delivery_address"
+              readonly
+              placeholder="请通过高德地图选择收货点"
+              :disabled="formDisabled"
+            />
+            <div v-if="form.delivery_lng != null && form.delivery_lat != null" class="text-muted small mt-1">
+              坐标：{{ form.delivery_lng?.toFixed(6) }}, {{ form.delivery_lat?.toFixed(6) }}
+            </div>
+          </div>
         </el-form-item>
 
         <el-form-item label="地图选点">
@@ -519,19 +975,19 @@ async function submit() {
             <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
               <el-button
                 :type="selecting === 'pickup' ? 'success' : 'default'"
-                :disabled="submitting || uploading"
+                :disabled="formDisabled"
                 @click="enterSelectMode('pickup')"
               >
                 设为取件点
               </el-button>
               <el-button
                 :type="selecting === 'delivery' ? 'danger' : 'default'"
-                :disabled="submitting || uploading"
+                :disabled="formDisabled"
                 @click="enterSelectMode('delivery')"
               >
-                设为送达点
+                设为收货点
               </el-button>
-              <el-button :disabled="submitting || uploading || !mapReady" :loading="locating" @click="locateToMyPosition">
+              <el-button :disabled="formDisabled || !mapReady" :loading="locating" @click="locateToMyPosition">
                 定位到我的位置
               </el-button>
               <input
@@ -539,18 +995,24 @@ async function submit() {
                 v-model="searchKeyword"
                 class="amap-search-input"
                 placeholder="搜索地点关键词"
-                :disabled="submitting || uploading || !mapReady"
+                :disabled="formDisabled || !mapReady"
               />
-              <div v-if="selecting" class="text-muted small">选点模式：请点击地图选择{{ selecting === 'pickup' ? '取件点' : '送达点' }}</div>
+              <div v-if="selecting" class="text-muted small">选点模式：请点击地图选择{{ selecting === 'pickup' ? '取件点' : '收货点' }}</div>
             </div>
             <div class="amap-wrapper" v-loading="mapLoading" element-loading-text="地图加载中…">
               <div ref="amapContainerRef" class="amap-container"></div>
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-3 mt-2 text-muted small">
+              <span>路线距离：{{ formatDistanceMeters(routeDistanceMeters) }}</span>
+              <span v-if="routeDurationSeconds">预计耗时：{{ Math.ceil(routeDurationSeconds / 60) }} 分钟</span>
+              <span v-if="distanceLoading">距离计算中…</span>
+              <span v-if="distanceErrorMessage">{{ distanceErrorMessage }}</span>
             </div>
           </div>
         </el-form-item>
 
         <el-form-item label="物品类型" required>
-          <el-select v-model="form.type" placeholder="请选择" :disabled="submitting || uploading" style="width: 220px">
+          <el-select v-model="form.type" placeholder="请选择" :disabled="formDisabled" style="width: 220px">
             <el-option label="快递" value="快递" />
             <el-option label="餐饮" value="餐饮" />
             <el-option label="文件" value="文件" />
@@ -558,26 +1020,102 @@ async function submit() {
           </el-select>
         </el-form-item>
 
-        <el-form-item label="时效" required>
-          <el-radio-group v-model="form.urgency" :disabled="submitting || uploading">
-            <el-radio :label="0">普通</el-radio>
-            <el-radio :label="1">加急</el-radio>
-          </el-radio-group>
-        </el-form-item>
-
-        <el-form-item label="配送费" required>
-          <el-input-number
-            v-model="form.fee_total"
-            :min="0.01"
-            :precision="2"
-            :step="0.5"
-            placeholder="请输入配送费"
-            :disabled="submitting || uploading"
-          />
+        <el-form-item label="加急">
+          <div class="d-flex flex-wrap align-items-center gap-2">
+            <el-switch
+              v-model="form.urgency"
+              :active-value="1"
+              :inactive-value="0"
+              inline-prompt
+              active-text="加急"
+              inactive-text="普通"
+              :disabled="formDisabled"
+            />
+            <span class="text-muted small">加急加价：¥ {{ formatMoney(breakdown.urgent_fee) }}</span>
+          </div>
         </el-form-item>
 
         <el-form-item label="小费">
-          <el-input-number v-model="form.tip" :min="0" :precision="0" :step="1" :disabled="submitting || uploading" />
+          <el-input-number v-model="form.tip" :min="0" :precision="2" :step="1" :disabled="formDisabled" />
+        </el-form-item>
+
+        <el-form-item label="费用明细">
+          <div class="vstack gap-2" style="width: 100%">
+            <el-alert
+              v-if="aiPricingErrorMessage"
+              type="warning"
+              show-icon
+              :closable="false"
+              :title="aiPricingErrorMessage"
+            />
+
+            <div class="fee-summary">
+              <div class="fee-summary__row">
+                <span class="text-muted">定价模式</span>
+                <span>
+                  <el-tag size="small" :type="aiPricingResult ? 'success' : 'info'">
+                    {{ aiPricingResult ? 'AI 定价' : '固定规则（估算）' }}
+                  </el-tag>
+                  <span v-if="aiPricingLoading" class="text-muted small ms-2">计算中…</span>
+                </span>
+              </div>
+
+              <div class="fee-summary__row">
+                <span>基础费</span>
+                <span>¥ {{ formatMoney(breakdown.base_fee) }}</span>
+              </div>
+              <div class="fee-summary__row">
+                <span>距离费（{{ formatDistanceMeters(routeDistanceMeters) }}）</span>
+                <span>¥ {{ formatMoney(breakdown.distance_fee) }}</span>
+              </div>
+              <div class="fee-summary__row">
+                <span>时段加价</span>
+                <span>¥ {{ formatMoney(breakdown.time_fee) }}</span>
+              </div>
+              <div class="fee-summary__row">
+                <span>天气加价</span>
+                <span>¥ {{ formatMoney(breakdown.weather_fee) }}</span>
+              </div>
+              <div class="fee-summary__row">
+                <span>紧急加价</span>
+                <span>¥ {{ formatMoney(breakdown.urgent_fee) }}</span>
+              </div>
+
+              <div class="fee-summary__row fee-summary__row--total">
+                <span>配送费（AI 结果）</span>
+                <span>¥ {{ formatMoney(deliveryFeeAuto) }}</span>
+              </div>
+
+              <div v-if="canUserAdjustPrice" class="fee-summary__row">
+                <span class="text-muted">手动微调</span>
+                <div class="d-flex align-items-center gap-2">
+                  <el-input-number
+                    v-model="userAdjustedDeliveryFee"
+                    :min="0"
+                    :precision="2"
+                    :step="0.5"
+                    :disabled="formDisabled"
+                  />
+                  <el-button size="small" :disabled="formDisabled" @click="userAdjustedDeliveryFee = null">恢复推荐</el-button>
+                </div>
+              </div>
+
+              <div class="fee-summary__row">
+                <span>最终配送费</span>
+                <span class="fw-semibold">¥ {{ formatMoney(deliveryFeeFinal) }}</span>
+              </div>
+
+              <div class="fee-summary__row">
+                <span>小费</span>
+                <span>¥ {{ formatMoney(tipAmount) }}</span>
+              </div>
+
+              <div class="fee-summary__row fee-summary__row--total">
+                <span>总计</span>
+                <span>¥ {{ formatMoney(totalFeeAmount) }}</span>
+              </div>
+            </div>
+          </div>
         </el-form-item>
 
         <el-form-item label="备注">
@@ -586,7 +1124,7 @@ async function submit() {
             type="textarea"
             :rows="3"
             placeholder="选填"
-            :disabled="submitting || uploading"
+            :disabled="formDisabled"
           />
         </el-form-item>
 
@@ -602,7 +1140,7 @@ async function submit() {
               list-type="picture-card"
               :limit="3"
               :headers="uploadHeaders"
-              :disabled="submitting"
+              :disabled="submitting || isFrozen"
               :on-success="onUploadSuccess"
               :on-remove="onUploadRemove"
               :on-preview="onUploadPreview"
@@ -614,7 +1152,14 @@ async function submit() {
         </el-form-item>
 
         <el-form-item>
-          <el-button type="primary" :loading="submitting" :disabled="uploading" @click="submit">发布</el-button>
+          <el-button
+            type="primary"
+            :loading="submitting"
+            :disabled="uploading || isFrozen || pricingLoading || distanceLoading"
+            @click="submit"
+          >
+            发布
+          </el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -678,5 +1223,31 @@ async function submit() {
 
 .map-marker--delivery {
   background: #ef4444;
+}
+
+.fee-summary {
+  width: min(420px, 100%);
+  padding: 12px 14px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  background: var(--el-fill-color-blank);
+}
+
+.fee-summary__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+  color: var(--el-text-color-regular);
+}
+
+.fee-summary__row + .fee-summary__row {
+  border-top: 1px dashed var(--el-border-color-lighter);
+}
+
+.fee-summary__row--total {
+  font-weight: 700;
+  color: var(--el-text-color-primary);
 }
 </style>

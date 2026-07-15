@@ -38,6 +38,8 @@ const listEl = ref<HTMLElement | null>(null)
 const auth = useAuthStore()
 const messageStore = useMessageStore()
 
+const isFrozen = computed(() => Boolean(auth.isFrozen))
+
 const myUserId = computed(() => String(auth.userId || '').trim())
 const myDisplayName = computed(() => String(auth.displayName || '').trim())
 
@@ -250,6 +252,10 @@ function closeDialog() {
 }
 
 async function send() {
+  if (isFrozen.value) {
+    ElMessage.warning('账号已冻结，无法发送消息')
+    return
+  }
   const orderId = String(props.orderId ?? '').trim()
   const toUserId = resolvedToUserId.value
   const message = draft.value.trim()
@@ -310,6 +316,13 @@ onUnmounted(() => {
   >
     <div class="vstack gap-2">
       <el-alert v-if="pollError" type="error" :closable="false" show-icon :title="pollError" />
+      <el-alert
+        v-if="isFrozen"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="账号已冻结，聊天发送功能已被限制。"
+      />
 
       <div ref="listEl" class="ce-chat-list">
         <div v-if="loadingHistory" class="text-muted small">正在加载消息…</div>
@@ -329,13 +342,13 @@ onUnmounted(() => {
         <el-input
           v-model="draft"
           placeholder="输入消息…"
-          :disabled="sending || !orderId || !resolvedToUserId"
+          :disabled="sending || !orderId || !resolvedToUserId || isFrozen"
           @keyup.enter="send"
         />
         <el-button
           type="primary"
           :loading="sending"
-          :disabled="sending || !draft.trim() || !orderId || !resolvedToUserId"
+          :disabled="sending || !draft.trim() || !orderId || !resolvedToUserId || isFrozen"
           @click="send"
         >
           发送

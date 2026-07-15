@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
 import type { UploadFile, UploadFiles, UploadUserFile } from 'element-plus'
-import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
@@ -265,6 +265,19 @@ function pickOrderStatusUpper(o: any) {
   return normalizeText(raw).toUpperCase()
 }
 
+function pickHasRunner(o: any) {
+  const root = o?.data ?? o
+  const raw = root?.hasRunner ?? root?.has_runner ?? root?.task?.hasRunner ?? root?.task?.has_runner
+  if (typeof raw === 'boolean') return raw
+  if (typeof raw === 'number') return raw > 0
+  const s = String(raw ?? '')
+    .trim()
+    .toLowerCase()
+  if (s === 'true' || s === '1' || s === 'yes') return true
+  if (s === 'false' || s === '0' || s === 'no') return false
+  return Boolean(pickRunnerId(o))
+}
+
 function updateRunnerMarkerByProgress(progress: number) {
   const AMap = (window as any).AMap
   if (!AMap) return
@@ -382,7 +395,7 @@ async function ensureMap() {
       resizeEnable: true,
     })
 
-    await ensureAMapPlugins(AMap, ['AMap.Driving', 'AMap.Geolocation'])
+   await ensureAMapPlugins(AMap, ['AMap.Driving', 'AMap.Geolocation', 'AMap.PlaceSearch'])
 
     if (AMap.Geolocation) {
       const geo = new AMap.Geolocation({
@@ -453,7 +466,21 @@ function clearRouteOverlays() {
 async function planDrivingRoute() {
   const seq = (planSeq += 1)
   amapErrorMessage.value = ''
+  if (!pickHasRunner(order.value)) return
 
+  // 直接从 order.value 读取坐标（后端已返回）
+  const pickupLng = order.value?.pickup_lng
+  const pickupLat = order.value?.pickup_lat
+  const deliveryLng = order.value?.delivery_lng
+  const deliveryLat = order.value?.delivery_lat
+
+  console.log('坐标信息:', { pickupLng, pickupLat, deliveryLng, deliveryLat })
+
+  if (!pickupLng || !pickupLat || !deliveryLng || !deliveryLat) {
+    console.warn('订单缺少坐标')
+    amapErrorMessage.value = '缺少取件点或收货点坐标'
+    return
+  }
   const m = await ensureMap()
   if (!m || !driving.value) return
 
@@ -466,31 +493,36 @@ async function planDrivingRoute() {
   const AMap = await loadAMap()
   if (seq !== planSeq) return
 
-  const startCoord: [number, number] = [113.285, 23.215]
-  const endCoord: [number, number] = [113.288, 23.218]
-  const startLngLat = new AMap.LngLat(startCoord[0], startCoord[1])
-  const endLngLat = new AMap.LngLat(endCoord[0], endCoord[1])
+  const startLngLat = new AMap.LngLat(pickupLng, pickupLat)
+  const endLngLat = new AMap.LngLat(deliveryLng, deliveryLat)
 
   amapLoading.value = true
   driving.value.search(startLngLat, endLngLat, (status: string, result: any) => {
-    console.log('status:', status)
-    try {
-      console.log(JSON.stringify(result, null, 2))
-    } catch {
-      console.log(result)
-    }
+    console.log('路线规划状态:', status)
     amapLoading.value = false
     if (seq !== planSeq) return
 
     if (!(status === 'complete' && result?.routes?.length)) {
-      console.error('路线规划失败详情:', result)
+      console.error('路线规划失败:', result)
       amapErrorMessage.value = String(result?.message ?? result?.info ?? '路线规划失败')
       return
     }
 
-    const route0 = result.routes[0]
-    const steps = Array.isArray(route0?.steps) ? route0.steps : []
+    // 获取距离和时长
+    const route = result.routes[0]
+    const distance = route?.distance  // 单位：米
+    const duration = route?.time      // 单位：秒
 
+    if (distance) {
+      const km = (distance / 1000).toFixed(2)
+      routeDistanceKm.value = parseFloat(km)
+    }
+    if (duration) {
+      const minutes = Math.ceil(duration / 60)
+      routeDurationMin.value = minutes
+    }
+
+    const steps = Array.isArray(route?.steps) ? route.steps : []
     const path: Array<{ lng: number; lat: number }> = []
     for (const st of steps) {
       const pts = Array.isArray(st?.path) ? st.path : []
@@ -502,9 +534,7 @@ async function planDrivingRoute() {
       }
     }
 
-    const fallbackStart = normalizeCoord(startCoord[0], startCoord[1]) ?? { lng: startCoord[0], lat: startCoord[1] }
-    const fallbackEnd = normalizeCoord(endCoord[0], endCoord[1]) ?? { lng: endCoord[0], lat: endCoord[1] }
-    routePath.value = path.length ? path : [fallbackStart, fallbackEnd]
+    routePath.value = path.length ? path : [{ lng: pickupLng, lat: pickupLat }, { lng: deliveryLng, lat: deliveryLat }]
     ;(window as any).routePath = routePath.value
 
     try {
@@ -525,16 +555,26 @@ async function planDrivingRoute() {
     polyline.setMap(m)
     ;(window as any).routePolyline = polyline
 
-    runnerMarker.value = new AMap.Marker({
+    // 添加起终点标记
+    if (pickupMarker.value) pickupMarker.value.setMap(null)
+    if (deliveryMarker.value) deliveryMarker.value.setMap(null)
+
+    pickupMarker.value = new AMap.Marker({
       position: startLngLat,
-      content: setMarkerContent('车', 'rgba(13, 110, 253, 0.95)', 'rgba(13, 110, 253, 0.25)'),
+      content: setMarkerContent('起', '#22c55e', 'rgba(34, 197, 94, 0.25)'),
       offset: new AMap.Pixel(-12, -12),
     })
-    runnerMarker.value.setMap(m)
-    ;(window as any).marker = runnerMarker.value
+    pickupMarker.value.setMap(m)
+
+    deliveryMarker.value = new AMap.Marker({
+      position: endLngLat,
+      content: setMarkerContent('终', '#ef4444', 'rgba(239, 68, 68, 0.25)'),
+      offset: new AMap.Pixel(-12, -12),
+    })
+    deliveryMarker.value.setMap(m)
 
     try {
-      m.setFitView([polyline, runnerMarker.value], false, [40, 40, 40, 40])
+      m.setFitView([polyline, pickupMarker.value, deliveryMarker.value], false, [40, 40, 40, 40])
     } catch {
       // ignore
     }
@@ -647,6 +687,7 @@ const routeDistanceText = computed(() => (routeDistanceKm.value === null ? '—'
 const routeDurationText = computed(() => (routeDurationMin.value === null ? '—' : `${routeDurationMin.value} 分钟`))
 const orderStatusUpper = computed(() => pickOrderStatusUpper(order.value))
 const backendProgressPercent = computed(() => pickProgressPercent(order.value))
+const hasRunner = computed(() => pickHasRunner(order.value))
 const displayProgressPercent = computed(() => {
   const status = orderStatusUpper.value
   if (isCompletedStatus(status)) return 100
@@ -1010,11 +1051,29 @@ watch(
   { immediate: true },
 )
 
+watch(
+  hasRunner,
+  async (v) => {
+    if (!v) {
+      clearRouteOverlays()
+      amapErrorMessage.value = ''
+      try {
+        map.value?.destroy?.()
+      } catch {
+      }
+      map.value = null
+      driving.value = null
+      return
+    }
+    await nextTick()
+    await ensureMap()
+    await planDrivingRoute()
+  },
+  { immediate: true },
+)
+
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
-  ensureMap().then(() => {
-    planDrivingRoute()
-  })
 })
 
 onUnmounted(() => {
@@ -1064,7 +1123,9 @@ onUnmounted(() => {
           <div v-if="loading" class="text-muted small">加载中…</div>
         </div>
 
-        <div class="runner-box">
+        <div v-if="order && !hasRunner" class="alert alert-info mb-0" role="alert">暂无骑手接单</div>
+
+        <div v-else-if="order && hasRunner" class="runner-box">
           <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
             <div class="vstack gap-1">
               <div class="fw-semibold">跑腿员信息</div>
@@ -1130,7 +1191,7 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <div class="route-box">
+        <div v-if="order && hasRunner" class="route-box">
           <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
             <div class="fw-semibold">高德地图</div>
             <div class="d-flex flex-wrap gap-2">

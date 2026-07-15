@@ -91,6 +91,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '我的订单' },
       },
       {
+        path: 'reviews',
+        name: 'reviews',
+        component: () => import('@/views/user/Reviews.vue'),
+        meta: { title: '我的评价' },
+      },
+      {
         path: 'order/:orderId/track',
         name: 'order-track',
         component: () => import('@/views/order/OrderDetail.vue'),
@@ -107,13 +113,13 @@ const routes: RouteRecordRaw[] = [
         path: 'runner/earnings',
         name: 'runner-earnings',
         component: () => import('@/views/runner/Earnings.vue'),
-        meta: { title: '收入与结算', roles: ['runner', 'admin'] satisfies Role[] },
+        meta: { title: '我的信用', roles: ['runner', 'admin'] satisfies Role[] },
       },
       {
         path: 'runner/withdrawals',
         name: 'runner-withdrawals',
         component: () => import('@/views/runner/Withdrawals.vue'),
-        meta: { title: '提现记录', roles: ['runner', 'admin'] satisfies Role[] },
+        meta: { title: '提现记录', roles: ['runner', 'admin'] },
       },
       {
         path: 'runner/statistics',
@@ -150,14 +156,14 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'admin/logs/login',
         name: 'admin-login-logs',
-        component: placeholderPage('登录日志'),
+        component: () => import('@/views/admin/LoginLogs.vue'),
         meta: { title: '登录日志', requiresAdmin: true, roles: ['admin'] satisfies Role[] },
       },
       {
         path: 'admin/logs/error',
         name: 'admin-error-logs',
-        component: placeholderPage('错误日志'),
-        meta: { title: '错误日志', requiresAdmin: true, roles: ['admin'] satisfies Role[] },
+        component: () => import('@/views/admin/ErrorLogs.vue'),  // 替换 placeholderPage
+        meta: { title: '错误日志', requiresAdmin: true, roles: ['admin'] },
       },
       {
         path: 'admin/config',
@@ -168,7 +174,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'admin/sensitive-words',
         name: 'admin-sensitive-words',
-        component: placeholderPage('敏感词管理'),
+        component: () => import('@/views/admin/AdminSensitiveWords.vue'),
         meta: { title: '敏感词管理', requiresAdmin: true, roles: ['admin'] satisfies Role[] },
       },
       {
@@ -192,14 +198,20 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'admin/withdrawals',
         name: 'admin-withdrawals',
-        component: placeholderPage('提现审核'),
-        meta: { title: '提现审核', requiresAdmin: true, roles: ['admin'] satisfies Role[] },
+        component: () => import('@/views/admin/Withdrawals.vue'),
+        meta: { title: '提现审核', requiresAdmin: true, roles: ['admin'] },
       },
       {
         path: 'admin/refunds',
         name: 'admin-refunds',
-        component: placeholderPage('退款审核'),
-        meta: { title: '退款审核', requiresAdmin: true, roles: ['admin'] satisfies Role[] },
+        component: () => import('@/views/admin/Refunds.vue'),
+        meta: { title: '退款审核', requiresAdmin: true, roles: ['admin'] },
+      },
+      {
+        path: 'admin/unfreeze-applications',
+        name: 'admin-unfreeze-applications',
+        component: () => import('@/views/admin/UnfreezeApplications.vue'),
+        meta: { title: '解封审核', requiresAdmin: true, roles: ['admin'] },
       },
       {
         path: 'admin/runner-auth',
@@ -210,7 +222,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'admin/reports',
         name: 'admin-reports',
-        component: placeholderPage('举报管理'),
+        component: () => import('@/views/admin/AdminReports.vue'),
         meta: { title: '举报管理', requiresAdmin: true, roles: ['admin'] satisfies Role[] },
       },
       {

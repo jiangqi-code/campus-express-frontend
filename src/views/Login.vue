@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { loginApi } from '@/api/auth'
+import { applyUnfreezeApi, loginApi } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
@@ -34,6 +34,25 @@ function getErrorMessage(err: any) {
   )
 }
 
+function isFrozenUser(user: any): boolean {
+  const directBool = user?.frozen ?? user?.isFrozen ?? user?.is_frozen ?? user?.freeze ?? user?.is_freeze
+  if (typeof directBool === 'boolean') return directBool
+  if (typeof directBool === 'number') return directBool === 1
+  if (typeof directBool === 'string') {
+    const s = directBool.trim().toLowerCase()
+    if (s === 'true' || s === '1' || s === 'yes') return true
+    if (s === 'false' || s === '0' || s === 'no') return false
+  }
+
+  const statusRaw = user?.status ?? user?.user_status ?? user?.state ?? user?.account_status
+  if (typeof statusRaw === 'number' && Number.isFinite(statusRaw)) return statusRaw === 0
+  const s = String(statusRaw ?? '').trim().toLowerCase()
+  if (!s) return false
+  if (s === '0') return true
+  if (s === 'frozen' || s === 'freeze' || s === 'disabled' || s.includes('冻结')) return true
+  return false
+}
+
 async function handleLogin() {
   const account = form.account.trim()
   if (submitting.value) return
@@ -59,13 +78,57 @@ async function handleLogin() {
     }
 
     const appRole = toAppRole(String(user.role))
+    const frozen = isFrozenUser(user)
+    const statusValue = frozen ? 0 : (user?.status ?? user?.user_status ?? user?.state ?? 1)
 
     auth.setSession({
       token,
       role: appRole,
       displayName: user.nickname || '同学',
       userId: String(user?.id ?? user?.user_id ?? user?.uid ?? user?.account ?? '').trim(),
+      status: statusValue,
     })
+
+    if (frozen) {
+      try {
+        await ElMessageBox.confirm(
+          '你的账号已被冻结：可以正常登录，但发布任务、抢单、聊天发送等功能已被限制。',
+          '账号冻结',
+          {
+            confirmButtonText: '申请解封',
+            cancelButtonText: '继续进入',
+            type: 'warning',
+            closeOnClickModal: false,
+            distinguishCancelAndClose: true,
+          },
+        )
+
+        try {
+          const { value } = await ElMessageBox.prompt('请输入解封申请原因（可选）', '申请解封', {
+            confirmButtonText: '提交',
+            cancelButtonText: '取消',
+            inputType: 'textarea',
+            inputPlaceholder: '例如：误封，已完成整改',
+            inputValue: '',
+            closeOnClickModal: false,
+            distinguishCancelAndClose: true,
+          })
+          await applyUnfreezeApi({ reason: String(value ?? '').trim() || undefined })
+          ElMessage.success('解封申请已提交，请等待管理员处理')
+        } catch (err: any) {
+          if (err === 'cancel' || err === 'close') {
+            ElMessage.info('已取消提交解封申请')
+          } else {
+            ElMessage.error(err?.response?.data?.message || err?.response?.data?.msg || err?.message || '提交解封申请失败')
+          }
+        }
+      } catch (err: any) {
+        if (err === 'cancel' || err === 'close') {
+        } else {
+          ElMessage.error(getErrorMessage(err))
+        }
+      }
+    }
 
     const redirect = route.query.redirect
     const rolePath =

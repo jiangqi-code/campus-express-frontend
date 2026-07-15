@@ -1,359 +1,328 @@
+<template>
+  <div class="p-4">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+      <div>
+        <h2 class="h4 mb-1">钱包流水</h2>
+        <p class="text-muted small mb-0">按类型、时间范围筛选查看资金变动</p>
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        <!-- 类型筛选 -->
+        <el-select v-model="filters.type" placeholder="类型" clearable style="width: 120px" @change="handleSearch">
+          <el-option label="全部类型" value="" />
+          <el-option label="充值" value="recharge" />
+          <el-option label="订单支付" value="ORDER_PAY" />
+          <el-option label="订单收入" value="ORDER_INCOME" />
+          <el-option label="退款" value="ORDER_CANCEL_REFUND" />
+          <el-option label="提现" value="WITHDRAW_APPROVE_OUT" />
+          <el-option label="超时退款" value="TASK_TIMEOUT_CANCEL_REFUND" />
+        </el-select>
+
+        <!-- 模糊查询：订单号/备注 -->
+        <el-input 
+          v-model="filters.keyword" 
+          placeholder="订单号/备注" 
+          clearable 
+          style="width: 180px"
+          @clear="handleSearch"
+          @keyup.enter="handleSearch"
+        >
+          <template #prefix>
+            <el-icon><Search /></el-icon>
+          </template>
+        </el-input>
+
+        <!-- 金额范围查询 -->
+        <el-input 
+          v-model="filters.minAmount" 
+          placeholder="最小金额" 
+          type="number"
+          clearable 
+          style="width: 110px"
+          @clear="handleSearch"
+        />
+        <span class="align-self-center">-</span>
+        <el-input 
+          v-model="filters.maxAmount" 
+          placeholder="最大金额" 
+          type="number"
+          clearable 
+          style="width: 110px"
+          @clear="handleSearch"
+        />
+
+        <!-- 日期范围 -->
+        <el-date-picker
+          v-model="dateRange"
+          type="daterange"
+          range-separator="至"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          format="YYYY/MM/DD"
+          value-format="YYYY-MM-DD"
+          style="width: 260px"
+          @change="handleSearch"
+        />
+
+        <el-button @click="resetFilters" :icon="RefreshRight">重置</el-button>
+        <el-button type="primary" @click="fetchLogs" :icon="Search">查询</el-button>
+      </div>
+    </div>
+
+    <!-- 表格内容保持不变 -->
+    <el-card shadow="never" class="border">
+      <el-table :data="logs" v-loading="loading" stripe style="width: 100%">
+        <el-table-column prop="type_name" label="类型" width="140">
+          <template #default="{ row }">
+            <el-tag :type="getTypeTagType(row.type)" size="small">
+              {{ getTypeName(row.type) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        
+        <el-table-column prop="remark" label="说明" min-width="150">
+          <template #default="{ row }">
+            <span>{{ getRemark(row) }}</span>
+          </template>
+        </el-table-column>
+        
+        <el-table-column prop="amount" label="金额" width="120" align="center">
+          <template #default="{ row }">
+            <span :class="getAmountClass(row.amount, row.type)">
+              {{ formatAmount(row.amount) }}
+            </span>
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="余额变化" width="180" align="center">
+          <template #default="{ row }">
+            <span class="text-muted small">
+              {{ formatMoney(row.before_balance) }} → {{ formatMoney(row.after_balance) }}
+            </span>
+          </template>
+        </el-table-column>
+        
+        <el-table-column prop="ref_order_id" label="关联订单" width="120" align="center">
+          <template #default="{ row }">
+            <el-link v-if="row.ref_order_id" type="primary" :underline="false" @click="goToOrderDetail(row.ref_order_id)">
+              {{ row.ref_order_id }}
+            </el-link>
+            <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
+        
+        <el-table-column prop="created_at" label="时间" width="170">
+          <template #default="{ row }">
+            <span class="text-muted small">{{ formatDateTime(row.created_at) }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="d-flex justify-content-end mt-4">
+        <el-pagination
+          v-model:current-page="pagination.page"
+          v-model:page-size="pagination.pageSize"
+          :total="pagination.total"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          @current-change="fetchLogs"
+          @size-change="handleSizeChange"
+        />
+      </div>
+    </el-card>
+  </div>
+</template>
+
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
-
+import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
+import { Search, RefreshRight } from '@element-plus/icons-vue'
 import { http } from '@/api/request'
+import { useRouter } from 'vue-router'
 
-type WalletLogRaw = Record<string, any>
-
-type WalletLogVM = {
-  id: string | number
-  type: string
-  title: string
-  amount: number
-  balanceBefore?: number
-  balanceAfter?: number
-  orderNo?: string
-  createdAt?: string | number
-  raw: WalletLogRaw
-}
-
+const router = useRouter()
 const loading = ref(false)
-const errorMessage = ref('')
-const rows = ref<WalletLogVM[]>([])
-const total = ref(0)
+const logs = ref<WalletLog[]>([])
+const dateRange = ref<[string, string] | null>(null)
 
-const filters = reactive<{
-  type: '' | 'recharge' | 'pay' | 'income' | 'withdraw' | 'refund'
-  startDate: string
-  endDate: string
-}>({
+// 扩展 filters，增加 keyword, minAmount, maxAmount
+const filters = ref({
   type: '',
+  keyword: '',      // 模糊查询关键词（订单号/备注）
+  minAmount: '',    // 最小金额
+  maxAmount: '',    // 最大金额
   startDate: '',
-  endDate: '',
+  endDate: ''
 })
 
-const pagination = reactive({
+const pagination = ref({
   page: 1,
-  pageSize: 10,
+  pageSize: 20,
+  total: 0,
 })
 
-const pageSizeOptions = [10, 20, 50]
-
-const typeOptions: Array<{ value: '' | WalletLogVM['type']; label: string }> = [
-  { value: '', label: '全部类型' },
-  { value: 'recharge', label: '充值' },
-  { value: 'pay', label: '支付' },
-  { value: 'income', label: '收入' },
-  { value: 'withdraw', label: '提现' },
-  { value: 'refund', label: '退款' },
-]
-
-function getErrorMessage(err: any) {
-  return (
-    err?.response?.data?.message ||
-    err?.response?.data?.msg ||
-    err?.response?.data?.error ||
-    err?.message ||
-    '操作失败'
-  )
+interface WalletLog {
+  id: number
+  type: string
+  amount: number
+  before_balance: number
+  after_balance: number
+  ref_order_id: number | null
+  created_at: string
+  remark?: string
 }
 
-function normalizeNumber(v: unknown, fallback = NaN) {
-  const n = typeof v === 'number' ? v : Number(String(v ?? '').trim())
-  return Number.isFinite(n) ? n : fallback
+// 跳转到订单详情
+function goToOrderDetail(orderId: number) {
+  router.push(`/order/detail/${orderId}`)
 }
 
-function normalizeId(r: WalletLogRaw, idx: number) {
-  const id =
-    r?.id ??
-    r?.log_id ??
-    r?.logId ??
-    r?.wallet_log_id ??
-    r?.walletLogId ??
-    r?.uuid ??
-    r?.no ??
-    r?.sn ??
-    `${idx + 1}`
-  return typeof id === 'string' || typeof id === 'number' ? id : String(id)
-}
-
-function normalizeType(rawType: unknown): string {
-  const t = String(rawType ?? '').trim()
-  if (!t) return ''
-
-  const lower = t.toLowerCase()
-  if (t.includes('充值') || t.includes('入金') || t.includes('加款')) return 'recharge'
-  if (t.includes('支付') || t.includes('扣款') || t.includes('支出') || t.includes('消费')) return 'pay'
-  if (t.includes('收入') || t.includes('收益') || t.includes('入账') || t.includes('到账')) return 'income'
-  if (t.includes('提现') || t.includes('出金') || t.includes('取现')) return 'withdraw'
-  if (t.includes('退款')) return 'refund'
-
-  if (lower === 'recharge' || lower === 'topup' || lower === 'deposit') return 'recharge'
-  if (lower === 'pay' || lower === 'payment' || lower === 'consume' || lower === 'expense') return 'pay'
-  if (lower === 'income' || lower === 'earn' || lower === 'earning') return 'income'
-  if (lower === 'withdraw' || lower === 'withdrawal' || lower === 'cashout') return 'withdraw'
-  if (lower === 'refund') return 'refund'
-
-  const num = normalizeNumber(rawType, NaN)
-  if (Number.isFinite(num)) {
-    if (num === 1) return 'recharge'
-    if (num === 2) return 'pay'
-    if (num === 3) return 'income'
-    if (num === 4) return 'withdraw'
-    if (num === 5) return 'refund'
+// 获取说明文字（简化，因为后端会返回remark）
+function getRemark(row: WalletLog): string {
+  const map: Record<string, string> = {
+    'recharge': '充值',
+    'RECHARGE': '充值',  // 添加这一行
+    'ORDER_PAY': '发布任务支付',
+    'ORDER_INCOME': '完成任务收入',
+    'ORDER_EARN': '完成任务收入',
+    'ORDER_CANCEL_REFUND': '订单取消退款',
+    'ORDER_CANCEL_COMPENSATE': '取消订单补偿',
+    'WITHDRAW_APPLY': '提现申请',
+    'WITHDRAW_APPROVE_OUT': '提现',
+    'WITHDRAW_REJECT_RETURN': '提现退回',
+    'REFUND': '退款申请通过',
+    'TASK_TIMEOUT_CANCEL_REFUND': '任务超时自动退款',
+    'ORDER_TIMEOUT_NO_PICKUP_REFUND': '超时未取件退款',
+    'COMPLAINT_COMPENSATION_OUT': '投诉赔付支出',
+    'COMPLAINT_COMPENSATION_IN': '投诉赔付收入'
   }
-
-  return t
+  return map[row.type] || row.remark || '-'
 }
 
-function typeLabel(type: string) {
-  if (type === 'recharge') return '充值'
-  if (type === 'pay') return '支付'
-  if (type === 'income') return '收入'
-  if (type === 'withdraw') return '提现'
-  if (type === 'refund') return '退款'
-  return type || '-'
+// 类型名称映射
+function getTypeName(type: string): string {
+  const map: Record<string, string> = {
+    'recharge': '充值',
+    'RECHARGE': '充值',  // 添加这一行
+    'ORDER_PAY': '订单支付',
+    'ORDER_INCOME': '订单收入',
+    'ORDER_EARN': '订单收入',
+    'ORDER_CANCEL_REFUND': '订单取消退款',
+    'ORDER_CANCEL_COMPENSATE': '取消订单补偿',
+    'WITHDRAW_APPLY': '提现申请',
+    'WITHDRAW_APPROVE_OUT': '提现',
+    'WITHDRAW_REJECT_RETURN': '提现退回',
+    'TASK_TIMEOUT_CANCEL_REFUND': '超时自动退款',
+    'ORDER_TIMEOUT_NO_PICKUP_REFUND': '超时未取件退款',
+    'REFUND': '退款',
+    'COMPLAINT_COMPENSATION_OUT': '投诉赔付支出',
+    'COMPLAINT_COMPENSATION_IN': '投诉赔付收入'
+  }
+  return map[type] || type || '其他'
 }
 
-function typeBadgeClass(type: string) {
-  if (type === 'recharge') return 'badge text-bg-primary'
-  if (type === 'income') return 'badge text-bg-success'
-  if (type === 'refund') return 'badge text-bg-info'
-  if (type === 'pay') return 'badge text-bg-danger'
-  if (type === 'withdraw') return 'badge text-bg-warning'
-  return 'badge text-bg-secondary'
+// 类型标签样式
+function getTypeTagType(type: string): string {
+  if (type === 'recharge' || type === 'RECHARGE' || type === 'ORDER_INCOME') return 'success'
+  if (type === 'ORDER_PAY') return 'danger'
+  if (type.includes('REFUND')) return 'warning'
+  if (type.includes('WITHDRAW')) return 'info'
+  return 'info'
 }
 
-function normalizeText(v: unknown) {
-  const s = String(v ?? '').trim()
-  return s ? s : ''
+// 金额样式
+function getAmountClass(amount: number, type: string): string {
+  if (amount === 0) return 'text-muted'
+  // 支出类
+  if (type === 'ORDER_PAY' || type === 'WITHDRAW_APPROVE_OUT') return 'text-danger'
+  return 'text-success'
 }
 
-function deriveTitle(type: string, r: WalletLogRaw) {
-  const explicit =
-    normalizeText(r?.title) ||
-    normalizeText(r?.remark) ||
-    normalizeText(r?.note) ||
-    normalizeText(r?.desc) ||
-    normalizeText(r?.description) ||
-    normalizeText(r?.reason) ||
-    normalizeText(r?.memo)
-  if (explicit) return explicit
-
-  if (type === 'pay') return '发布任务扣款'
-  if (type === 'income') return '完成任务获得收益'
-  if (type === 'refund') return '取消订单退款'
-  if (type === 'recharge') return '充值'
-  if (type === 'withdraw') return '提现'
-  return '-'
+function formatAmount(amount: number): string {
+  if (amount === undefined || amount === null) return '0.00'
+  const num = Number(amount)
+  if (isNaN(num)) return '0.00'
+  const prefix = num > 0 ? '+' : ''
+  return `${prefix}${num.toFixed(2)}`
 }
 
-function formatMoney(v: unknown) {
-  const n = normalizeNumber(v, NaN)
-  if (!Number.isFinite(n)) return '-'
-  return n.toFixed(2)
+function formatMoney(amount: number): string {
+  if (amount === undefined || amount === null) return '0.00'
+  return Number(amount).toFixed(2)
 }
 
-function formatAmount(n: number) {
-  const sign = n > 0 ? '+' : ''
-  return `${sign}${n.toFixed(2)}`
-}
-
-function formatTime(v: unknown) {
-  if (v === null || v === undefined || v === '') return '-'
-  if (typeof v === 'string' && v.trim().length > 0) {
-    const s = v.trim()
-    const maybeNum = normalizeNumber(s, NaN)
-    if (Number.isFinite(maybeNum)) return formatTime(maybeNum)
-    const d = new Date(s)
-    if (!Number.isNaN(d.getTime())) return d.toLocaleString()
-    return s
-  }
-
-  if (typeof v === 'number') {
-    const ms = v < 1e12 ? v * 1000 : v
-    const d = new Date(ms)
-    if (!Number.isNaN(d.getTime())) return d.toLocaleString()
-    return String(v)
-  }
-
-  return String(v)
-}
-
-function normalizeListResponse(data: any): { list: WalletLogRaw[]; total: number } {
-  if (Array.isArray(data)) return { list: data, total: data.length }
-
-  const root = data?.data ?? data
-  const list: WalletLogRaw[] =
-    root?.list ?? root?.rows ?? root?.items ?? root?.records ?? root?.result ?? root?.logs ?? root?.data ?? []
-  const totalNum = Number(root?.total ?? root?.count ?? root?.pagination?.total ?? (Array.isArray(list) ? list.length : 0))
-  const total = Number.isFinite(totalNum) ? totalNum : Array.isArray(list) ? list.length : 0
-  return { list: Array.isArray(list) ? list : [], total }
-}
-
-function toVM(r: WalletLogRaw, idx: number): WalletLogVM {
-  const type = normalizeType(r?.type ?? r?.log_type ?? r?.logType ?? r?.biz_type ?? r?.bizType ?? r?.action)
-
-  const beforeRaw =
-    r?.balance_before ?? r?.before_balance ?? r?.prev_balance ?? r?.balanceBefore ?? r?.beforeBalance ?? r?.before
-  const afterRaw =
-    r?.balance_after ?? r?.after_balance ?? r?.new_balance ?? r?.balanceAfter ?? r?.afterBalance ?? r?.after ?? r?.balance
-
-  const deltaRaw = r?.amount ?? r?.delta ?? r?.change_amount ?? r?.changeAmount ?? r?.money ?? r?.fee
-
-  let balanceBefore = normalizeNumber(beforeRaw, NaN)
-  let balanceAfter = normalizeNumber(afterRaw, NaN)
-  let amount = normalizeNumber(deltaRaw, NaN)
-
-  const hasBalancePair = Number.isFinite(balanceBefore) && Number.isFinite(balanceAfter)
-
-  if (hasBalancePair) {
-    amount = balanceAfter - balanceBefore
-  }
-  if (!Number.isFinite(balanceBefore) && Number.isFinite(balanceAfter) && Number.isFinite(amount)) {
-    balanceBefore = balanceAfter - amount
-  }
-  if (!Number.isFinite(balanceAfter) && Number.isFinite(balanceBefore) && Number.isFinite(amount)) {
-    balanceAfter = balanceBefore + amount
-  }
-
-  if (Number.isFinite(amount) && !hasBalancePair) {
-    if (type === 'pay' || type === 'withdraw') amount = -Math.abs(amount)
-    if (type === 'recharge' || type === 'income' || type === 'refund') amount = Math.abs(amount)
-  }
-
-  const orderNoRaw = r?.order_no ?? r?.orderNo ?? r?.order_sn ?? r?.orderSn ?? r?.order_id ?? r?.orderId
-  const orderNo = typeof orderNoRaw === 'string' || typeof orderNoRaw === 'number' ? String(orderNoRaw) : undefined
-
-  const createdAt = r?.created_at ?? r?.createdAt ?? r?.time ?? r?.created_time ?? r?.createdTime ?? r?.timestamp
-
-  return {
-    id: normalizeId(r, idx),
-    type,
-    title: deriveTitle(type, r),
-    amount: Number.isFinite(amount) ? amount : 0,
-    balanceBefore: Number.isFinite(balanceBefore) ? balanceBefore : undefined,
-    balanceAfter: Number.isFinite(balanceAfter) ? balanceAfter : undefined,
-    orderNo,
-    createdAt,
-    raw: r,
-  }
-}
-
-const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pagination.pageSize)))
-
-const pageItems = computed<(number | '...')[]>(() => {
-  const tp = totalPages.value
-  const cur = pagination.page
-  if (tp <= 7) return Array.from({ length: tp }, (_, i) => i + 1)
-
-  const items: (number | '...')[] = [1]
-
-  if (cur <= 4) {
-    items.push(2, 3, 4, 5, '...', tp)
-    return items
-  }
-
-  if (cur >= tp - 3) {
-    items.push('...', tp - 4, tp - 3, tp - 2, tp - 1, tp)
-    return items
-  }
-
-  items.push('...', cur - 1, cur, cur + 1, '...', tp)
-  return items
-})
-
-async function requestLogs(params: Record<string, any>) {
-  const endpoints = ['/wallet/log', '/wallet/logs', '/wallet/log/list', '/wallet/logs/list']
-  let lastErr: any
-  for (const url of endpoints) {
-    try {
-      return await http.get(url, { params })
-    } catch (err: any) {
-      const status = err?.response?.status
-      if (status === 404 || status === 405) {
-        lastErr = err
-        continue
-      }
-      throw err
-    }
-  }
-  throw lastErr
+function formatDateTime(dateStr: string): string {
+  if (!dateStr) return '-'
+  const date = new Date(dateStr)
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 
 async function fetchLogs() {
   loading.value = true
-  errorMessage.value = ''
   try {
-    const params: Record<string, any> = {
-      page: pagination.page,
-      pageSize: pagination.pageSize,
-      page_size: pagination.pageSize,
+    const params: any = {
+      page: pagination.value.page,
+      pageSize: pagination.value.pageSize,
     }
-
-    if (filters.type) {
-      params.type = filters.type
-      params.logType = filters.type
-      params.log_type = filters.type
+    
+    // 类型筛选
+    if (filters.value.type) {
+      params.type = filters.value.type
     }
-
-    const start = filters.startDate.trim()
-    const end = filters.endDate.trim()
-    if (start) {
-      params.startDate = start
-      params.start_date = start
-      params.start_time = start
+    
+    // 模糊查询（订单号/备注）
+    if (filters.value.keyword) {
+      params.keyword = filters.value.keyword.trim()
     }
-    if (end) {
-      params.endDate = end
-      params.end_date = end
-      params.end_time = end
+    
+    // 金额范围查询
+    if (filters.value.minAmount) {
+      params.min_amount = Number(filters.value.minAmount)
     }
-
-    const res = await requestLogs(params)
-    const normalized = normalizeListResponse(res.data)
-    rows.value = normalized.list.map(toVM)
-    total.value = normalized.total
-
-    const tp = Math.max(1, Math.ceil(normalized.total / pagination.pageSize))
-    if (pagination.page > tp) {
-      pagination.page = tp
-      const res2 = await requestLogs({ ...params, page: pagination.page })
-      const normalized2 = normalizeListResponse(res2.data)
-      rows.value = normalized2.list.map(toVM)
-      total.value = normalized2.total
+    if (filters.value.maxAmount) {
+      params.max_amount = Number(filters.value.maxAmount)
     }
+    
+    // 日期范围
+    if (dateRange.value && dateRange.value[0] && dateRange.value[1]) {
+      params.start_date = dateRange.value[0]
+      params.end_date = dateRange.value[1]
+    }
+    
+    const res = await http.get('/wallet/logs', { params })
+    const data = res.data
+    
+    logs.value = data.items || data.list || []
+    pagination.value.total = data.total || 0
   } catch (err: any) {
-    errorMessage.value = getErrorMessage(err)
-    rows.value = []
-    total.value = 0
+    ElMessage.error(err?.response?.data?.message || '加载流水失败')
   } finally {
     loading.value = false
   }
 }
 
-function onSearch() {
-  pagination.page = 1
+function handleSearch() {
+  pagination.value.page = 1
+  fetchLogs()
+}
+
+function handleSizeChange() {
+  pagination.value.page = 1
   fetchLogs()
 }
 
 function resetFilters() {
-  filters.type = ''
-  filters.startDate = ''
-  filters.endDate = ''
-  pagination.page = 1
-  fetchLogs()
-}
-
-function onChangePageSize(next: number) {
-  pagination.pageSize = next
-  pagination.page = 1
-  fetchLogs()
-}
-
-function goPage(p: number) {
-  if (p < 1 || p > totalPages.value || p === pagination.page) return
-  pagination.page = p
+  filters.value.type = ''
+  filters.value.keyword = ''
+  filters.value.minAmount = ''
+  filters.value.maxAmount = ''
+  dateRange.value = null
+  pagination.value.page = 1
   fetchLogs()
 }
 
@@ -362,130 +331,24 @@ onMounted(() => {
 })
 </script>
 
-<template>
-  <div class="vstack gap-3">
-    <div class="d-flex flex-wrap align-items-end justify-content-between gap-2">
-      <div>
-        <h1 class="h4 mb-1">钱包流水</h1>
-        <div class="text-muted">按类型、时间范围筛选查看资金变动</div>
-      </div>
-      <div class="d-flex gap-2">
-        <button class="btn btn-outline-primary" type="button" :disabled="loading" @click="fetchLogs">刷新</button>
-      </div>
-    </div>
+<style scoped>
+:deep(.el-table th) {
+  background-color: #f8fafc;
+  font-weight: 600;
+  color: #1e293b;
+}
 
-    <div v-if="errorMessage" class="alert alert-danger mb-0" role="alert">{{ errorMessage }}</div>
+.text-success {
+  color: #67c23a;
+  font-weight: 500;
+}
 
-    <div class="card border-0 shadow-sm">
-      <div class="card-body">
-        <div class="row g-3">
-          <div class="col-12 col-md-4 col-lg-3">
-            <label class="form-label text-muted small mb-1">类型</label>
-            <select v-model="filters.type" class="form-select" :disabled="loading">
-              <option v-for="it in typeOptions" :key="it.value || 'all'" :value="it.value">{{ it.label }}</option>
-            </select>
-          </div>
+.text-danger {
+  color: #f56c6c;
+  font-weight: 500;
+}
 
-          <div class="col-12 col-md-4 col-lg-3">
-            <label class="form-label text-muted small mb-1">开始日期</label>
-            <input v-model="filters.startDate" class="form-control" type="date" :disabled="loading" />
-          </div>
-
-          <div class="col-12 col-md-4 col-lg-3">
-            <label class="form-label text-muted small mb-1">结束日期</label>
-            <input v-model="filters.endDate" class="form-control" type="date" :disabled="loading" />
-          </div>
-
-          <div class="col-12 col-lg-3">
-            <label class="form-label text-muted small mb-1">每页</label>
-            <select
-              class="form-select"
-              :value="pagination.pageSize"
-              :disabled="loading"
-              @change="onChangePageSize(Number(($event.target as HTMLSelectElement).value))"
-            >
-              <option v-for="s in pageSizeOptions" :key="s" :value="s">{{ s }}</option>
-            </select>
-          </div>
-
-          <div class="col-12 d-flex gap-2">
-            <button class="btn btn-outline-primary" type="button" :disabled="loading" @click="resetFilters">重置</button>
-            <button class="btn btn-primary" type="button" :disabled="loading" @click="onSearch">筛选</button>
-          </div>
-        </div>
-
-        <div class="d-flex flex-wrap justify-content-between align-items-center mt-3 gap-2">
-          <div class="text-muted small">共 {{ total }} 条 · 第 {{ pagination.page }} / {{ totalPages }} 页</div>
-          <div v-if="loading" class="text-muted small">加载中…</div>
-        </div>
-
-        <div v-if="loading && rows.length === 0" class="placeholder-glow mt-3">
-          <div class="placeholder col-12 mb-2" />
-          <div class="placeholder col-10 mb-2" />
-          <div class="placeholder col-11" />
-        </div>
-
-        <div v-else class="table-responsive mt-3">
-          <table class="table table-hover align-middle">
-            <thead>
-              <tr>
-                <th class="text-nowrap">类型</th>
-                <th class="text-nowrap">说明</th>
-                <th class="text-nowrap">金额</th>
-                <th class="text-nowrap">余额变化</th>
-                <th class="text-nowrap">关联订单</th>
-                <th class="text-nowrap">时间</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-if="rows.length === 0">
-                <td colspan="6" class="text-muted text-center py-4">暂无数据</td>
-              </tr>
-              <tr v-for="r in rows" :key="r.id">
-                <td class="text-nowrap"><span :class="typeBadgeClass(r.type)">{{ typeLabel(r.type) }}</span></td>
-                <td class="text-nowrap">{{ r.title }}</td>
-                <td class="text-nowrap" :class="r.amount >= 0 ? 'text-success' : 'text-danger'">
-                  {{ formatAmount(r.amount) }}
-                </td>
-                <td class="text-nowrap text-muted">
-                  <span v-if="r.balanceBefore !== undefined && r.balanceAfter !== undefined">
-                    {{ formatMoney(r.balanceBefore) }} → {{ formatMoney(r.balanceAfter) }}
-                  </span>
-                  <span v-else>-</span>
-                </td>
-                <td class="text-nowrap">
-                  <span v-if="r.orderNo" class="font-monospace">{{ r.orderNo }}</span>
-                  <span v-else class="text-muted">-</span>
-                </td>
-                <td class="text-nowrap text-muted">{{ formatTime(r.createdAt) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3">
-          <div class="text-muted small">显示 {{ rows.length }} 条</div>
-          <nav aria-label="Pagination">
-            <ul class="pagination mb-0">
-              <li class="page-item" :class="{ disabled: pagination.page <= 1 || loading }">
-                <button class="page-link" type="button" @click="goPage(pagination.page - 1)">上一页</button>
-              </li>
-              <li
-                v-for="it in pageItems"
-                :key="String(it)"
-                class="page-item"
-                :class="{ active: it === pagination.page, disabled: it === '...' || loading }"
-              >
-                <button v-if="it !== '...'" class="page-link" type="button" @click="goPage(it as number)">{{ it }}</button>
-                <span v-else class="page-link">…</span>
-              </li>
-              <li class="page-item" :class="{ disabled: pagination.page >= totalPages || loading }">
-                <button class="page-link" type="button" @click="goPage(pagination.page + 1)">下一页</button>
-              </li>
-            </ul>
-          </nav>
-        </div>
-      </div>
-    </div>
-  </div>
-</template>
+.text-muted {
+  color: #909399;
+}
+</style>

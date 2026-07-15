@@ -24,6 +24,8 @@ type WalletVM = {
   frozen: number
 }
 
+const LOW_CREDIT_THRESHOLD = 60
+
 const auth = useAuthStore()
 const router = useRouter()
 
@@ -113,21 +115,23 @@ function pickRunnerAuthRecord(data: any): any | null {
   return null
 }
 
-async function fetchRunnerAuthStatus() {
-  if (auth.role !== 'user') return
+async function fetchRunnerAuthStatus(): Promise<RunnerAuthState | null> {
+  if (auth.role !== 'user') return null
   runnerAuthLoading.value = true
   try {
     try {
       const res = await http.get('/user/auth-status')
       const data = res?.data?.data ?? res?.data ?? {}
-      auth.setRunnerAuthState(normalizeRunnerAuthState(data))
-      return
+      const state = normalizeRunnerAuthState(data)
+      auth.setRunnerAuthState(state)
+      return state
     } catch {
       const res = await http.get('/user/auth')
       const record = pickRunnerAuthRecord(res?.data)
       if (!record) {
-        auth.setRunnerAuthState({ hasApplied: false, authStatus: 'NONE', runnerApproved: false, updatedAt: Date.now() })
-        return
+        const state = { hasApplied: false, authStatus: 'NONE', runnerApproved: false, updatedAt: Date.now() } satisfies RunnerAuthState
+        auth.setRunnerAuthState(state)
+        return state
       }
       const status = normalizeRunnerAuthStatus(
         record?.authStatus ??
@@ -139,16 +143,19 @@ async function fetchRunnerAuthStatus() {
           record?.resultStatus ??
           record?.result_status,
       )
-      auth.setRunnerAuthState({
+      const state = {
         hasApplied: true,
         authStatus: status,
         runnerApproved: status === 'APPROVED',
         updatedAt: Date.now(),
-      })
+      } satisfies RunnerAuthState
+      auth.setRunnerAuthState(state)
+      return state
     }
   } catch {
     auth.setRunnerAuthState({ updatedAt: Date.now() })
     // TODO: 后端补齐 /api/user/auth-status 后移除本地状态兜底逻辑
+    return auth.runnerAuth
   } finally {
     runnerAuthLoading.value = false
   }
@@ -180,10 +187,21 @@ function formatMoney(v: number) {
 
 const currentRoleLabel = computed<RoleLabel>(() => toRoleLabel(me.value?.role ?? auth.role))
 
-const showRoleSwitchButton = computed(() => auth.role === 'user' || auth.role === 'runner')
+const creditScoreText = computed(() => {
+  if (!me.value) return loading.value ? '加载中' : '—'
+  return String(me.value.creditScore)
+})
+
+const isLowCredit = computed(() => {
+  const score = me.value?.creditScore
+  return typeof score === 'number' && Number.isFinite(score) && score < LOW_CREDIT_THRESHOLD
+})
+
+const canSwitchToRunner = computed(() => auth.role === 'user' && effectiveRunnerAuthStatus.value === 'APPROVED')
+const showRoleSwitchButton = computed(() => auth.role === 'runner' || canSwitchToRunner.value)
 const roleSwitchButtonLabel = computed(() => {
-  if (auth.role === 'user') return '切换为跑腿员'
   if (auth.role === 'runner') return '切换为普通用户'
+  if (canSwitchToRunner.value) return '切换为跑腿员'
   return ''
 })
 
@@ -218,7 +236,7 @@ const showApplyButton = computed(() => auth.role === 'user' && effectiveRunnerAu
 const applyButtonText = computed(() => {
   if (runnerAuthLoading.value) return '加载中'
   const s = effectiveRunnerAuthStatus.value
-  if (s === 'PENDING') return '审核中'
+  if (s === 'PENDING') return '审核中，请等待'
   if (s === 'REJECTED') return '重新申请'
   return '申请成为跑腿员'
 })
@@ -241,15 +259,22 @@ function openAvatarPicker() {
 async function fetchMe() {
   loading.value = true
   try {
-    const res = await http.get('/auth/me')
-    const raw = res?.data?.user ?? res?.data?.data ?? res?.data ?? {}
+    let res: any
+    try {
+      res = await http.get('/user/me')
+    } catch {
+      res = await http.get('/auth/me')
+    }
+    const root = res?.data?.data ?? res?.data ?? {}
+    const raw = (root?.user ?? res?.data?.user ?? root) as any
     const nickname = normalizeText(raw.nickname ?? raw.displayName ?? raw.name ?? raw.username) || '同学'
     const phone = normalizeText(raw.phone ?? raw.mobile ?? raw.tel)
     const studentId = normalizeText(raw.student_id ?? raw.studentId ?? raw.sid ?? raw.account)
     const role = toRoleLabel(raw.role ?? raw.userRole ?? raw.identity)
-    const creditScore = normalizeNumber(raw.credit ?? raw.credit_score ?? raw.creditScore ?? raw.score ?? raw.reputation, 0)
+    const creditScore = normalizeNumber(raw.credit_score ?? raw.credit ?? raw.creditScore ?? raw.score ?? raw.reputation, 0)
     const avatarUrl = normalizeText(raw.avatar ?? raw.avatar_url ?? raw.avatarUrl ?? raw.headImg ?? raw.head_img)
     const id = normalizeText(raw.id ?? raw.user_id ?? raw.uid ?? raw.account ?? auth.userId)
+    const statusRaw = raw.status ?? raw.user_status ?? raw.state ?? raw.account_status
 
     me.value = { id, nickname, phone, studentId, role, creditScore, avatarUrl }
     form.nickname = nickname
@@ -261,6 +286,7 @@ async function fetchMe() {
       role: toAppRole(role),
       displayName: nickname || auth.displayName,
       userId: id || auth.userId,
+      status: statusRaw,
     })
   } catch (err: any) {
     ElMessage.error(getErrorMessage(err))
@@ -357,6 +383,23 @@ async function onAvatarSelected(e: Event) {
 
 async function onSwitchRole() {
   if (!showRoleSwitchButton.value || busySwitchRole.value) return
+  if (auth.role === 'user') {
+    const latestState = await fetchRunnerAuthStatus()
+    const latestStatus =
+      latestState?.hasApplied && latestState.authStatus === 'NONE' ? 'PENDING' : latestState?.authStatus ?? effectiveRunnerAuthStatus.value
+    if (latestStatus === 'PENDING') {
+      ElMessage.info('审核中，请等待')
+      return
+    }
+    if (latestStatus === 'REJECTED') {
+      ElMessage.warning('申请已被拒绝，请重新申请')
+      return
+    }
+    if (latestStatus !== 'APPROVED') {
+      ElMessage.warning('请先申请成为跑腿员')
+      return
+    }
+  }
 
   const nextRoleLabel: RoleLabel = auth.role === 'user' ? 'RUNNER' : 'USER'
   const nextAppRole: AppRole = nextRoleLabel === 'RUNNER' ? 'runner' : 'user'
@@ -382,7 +425,18 @@ async function onSwitchRole() {
 }
 
 async function onGoApplyRunner() {
-  if (applyButtonDisabled.value) return
+  if (auth.role !== 'user' || runnerAuthLoading.value || applyButtonDisabled.value) return
+  const latestState = await fetchRunnerAuthStatus()
+  const latestStatus =
+    latestState?.hasApplied && latestState.authStatus === 'NONE' ? 'PENDING' : latestState?.authStatus ?? effectiveRunnerAuthStatus.value
+  if (latestStatus === 'PENDING') {
+    ElMessage.info('审核中，请等待')
+    return
+  }
+  if (latestStatus === 'APPROVED') {
+    ElMessage.info('审核已通过，请点击“切换为跑腿员”')
+    return
+  }
   await router.push('/runner/apply')
 }
 
@@ -464,7 +518,10 @@ onMounted(() => {
                   </div>
                   <div class="text-muted small mt-1">
                     <span class="me-3">学号：{{ studentIdLabel }}</span>
-                    <span>信用分：{{ me?.creditScore ?? 0 }}</span>
+                    <span>信用分：{{ creditScoreText }}</span>
+                  </div>
+                  <div v-if="isLowCredit" class="alert alert-warning mt-2 mb-0 py-2 px-3" role="alert">
+                    当前信用分过低（< {{ LOW_CREDIT_THRESHOLD }}），可能会影响接单/发布任务等功能。
                   </div>
                 </div>
               </div>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
-import type { UploadFile, UploadFiles, UploadUserFile } from 'element-plus'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import type { FormInstance, FormRules, UploadFile, UploadFiles, UploadUserFile } from 'element-plus'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import {
@@ -11,9 +11,11 @@ import {
   deliverOrder,
   pickupOrder,
   saveDeliveryPhoto,
+  submitOrderReview,
   urgeOrder,
 } from '@/api/order'
 import { baseURL, http } from '@/api/request'
+import { cancelTask } from '@/api/task'
 import ChatSimulator from '@/components/ChatSimulator.vue'
 import { useAuthStore } from '@/stores/auth'
 
@@ -48,6 +50,7 @@ type OrderRow = {
     id?: string | number
     final_price?: number | string
   }
+  hasRefunded?: boolean
 }
 
 const publishedRows = ref<OrderRow[]>([])
@@ -55,6 +58,42 @@ const takenRows = ref<OrderRow[]>([])
 
 const busyAction = ref<Record<string, string | undefined>>({})
 const locallyConfirmed = ref<Record<string, boolean | undefined>>({})
+
+// 退款相关
+const refundDialogVisible = ref(false)
+const refundSubmitting = ref(false)
+const refundReason = ref('')
+const refundDescription = ref('')
+const currentRefundOrder = ref<any>(null)
+
+const REVIEW_TAG_OPTIONS = ['准时', '态度好', '物品完好', '速度快', '专业', '细心']
+const reviewDialogVisible = ref(false)
+const reviewSubmitting = ref(false)
+const reviewFormRef = ref<FormInstance>()
+const currentReviewOrder = ref<OrderRow | null>(null)
+const reviewFileList = ref<UploadUserFile[]>([])
+const reviewImageMap = ref<Record<string, string>>({})
+const locallyReviewed = ref<Record<string, boolean | undefined>>({})
+const reviewForm = reactive({
+  rating: 0,
+  tags: [] as string[],
+  content: '',
+  images: [] as string[],
+})
+const reviewRules: FormRules = {
+  rating: [
+    {
+      validator: (_rule, value, callback) => {
+        if (Number(value) > 0) {
+          callback()
+          return
+        }
+        callback(new Error('请选择评分'))
+      },
+      trigger: 'change',
+    },
+  ],
+}
 
 type RunnerPhotoMode = 'pickup' | 'deliver'
 
@@ -166,6 +205,59 @@ function pickOrderIdFromRow(row: any) {
 
 function pickTaskIdFromRow(row: any) {
   return String(row?.task_id ?? row?.taskId ?? row?.task?.id ?? row?.id ?? '').trim()
+}
+
+function hasTaskOrOrderId(row: any) {
+  return Boolean(pickOrderIdFromRow(row) || pickTaskIdFromRow(row))
+}
+
+function pickStatusFromRow(row: any) {
+  return normalizeStatus(
+    row?.status ??
+      row?.order_status ??
+      row?.orderStatus ??
+      row?.task?.status ??
+      row?.task?.order_status ??
+      row?.task?.orderStatus ??
+      '',
+  )
+}
+
+function isPublishedVisibleStatus(statusRaw: unknown) {
+  const s = normalizeStatus(statusRaw)
+  return (
+    s === 'PENDING' ||
+    s === 'CREATED' ||
+    s === 'ACCEPTED' ||
+    s === 'ASSIGNED' ||
+    s === 'PICKED' ||
+    s === 'PICKED_UP' ||
+    s === 'PICKUP' ||
+    s === 'DELIVERING' ||
+    s === 'DELIVER' ||
+    s === 'COMPLETED' ||
+    s === 'DONE' ||
+    s === 'FINISHED' ||
+    s === 'CANCELLED' ||
+    s === 'CANCELED' ||
+    s === 'CANCEL'
+  )
+}
+
+function isTakenVisibleStatus(statusRaw: unknown) {
+  const s = normalizeStatus(statusRaw)
+  return (
+    s === 'ACCEPTED' ||
+    s === 'ASSIGNED' ||
+    s === 'PICKED' ||
+    s === 'PICKED_UP' ||
+    s === 'PICKUP' ||
+    s === 'DELIVERING' ||
+    s === 'DELIVER' ||
+    s === 'COMPLETED' ||
+    s === 'DONE' ||
+    s === 'FINISHED'
+  )
 }
 
 function toOrderId(o: OrderRow) {
@@ -357,12 +449,6 @@ function stageProgress(o: OrderRow) {
   return stageProgressByStatus(o.status)
 }
 
-function statusLabelForRow(o: OrderRow) {
-  const s = normalizeStatus(o.status)
-  if ((s === 'DELIVERING' || s === 'DELIVER') && stageProgress(o) >= 1) return '已送达'
-  return statusLabel(o.status)
-}
-
 function pruneDeliveringProgress(rows: OrderRow[]) {
   const keep = new Set<string>()
   for (const r of rows) {
@@ -459,18 +545,21 @@ function deliveryAddressText(o: OrderRow) {
   return String(o.delivery_address ?? '').trim() || '-'
 }
 
-function runnerNextAction(statusRaw: unknown): 'pickup' | 'startDelivering' | 'complete' | 'uploadDeliveryPhoto' | null {
+function runnerNextAction(statusRaw: unknown): 'pickup' | 'startDelivering' | 'markDelivered' | null {
   const s = normalizeStatus(statusRaw)
   if (s === 'ACCEPTED' || s === 'ASSIGNED') return 'pickup'
   if (s === 'PICKED_UP' || s === 'PICKUP' || s === 'PICKED') return 'startDelivering'
-  if (s === 'DELIVERING' || s === 'DELIVER') return 'complete'
-  if (s === 'COMPLETED' || s === 'DONE' || s === 'FINISHED') return 'uploadDeliveryPhoto'
+  if (s === 'DELIVERING' || s === 'DELIVER') return 'markDelivered'
   return null
 }
 
 function isCompletedStatus(statusRaw: unknown) {
   const s = normalizeStatus(statusRaw)
   return s === 'COMPLETED' || s === 'DONE' || s === 'FINISHED'
+}
+
+function isAwaitingUserConfirmStatus(statusRaw: unknown) {
+  return normalizeStatus(statusRaw) === 'COMPLETED'
 }
 
 function isCancelledStatus(statusRaw: unknown) {
@@ -498,27 +587,238 @@ function canCancel(o: OrderRow) {
   const orderId = toOrderId(o)
   const taskId = pickTaskIdFromRow(o)
   if (!orderId && !taskId) return false
-  return isCancelableStatus(o.status)
+  const status = pickStatusFromRow(o)
+  return isCancelableStatus(status)
 }
 
 function canConfirm(o: OrderRow) {
   const id = toOrderId(o)
   if (!id) return false
-  return isDeliveringStatus(o.status) && !locallyConfirmed.value[id]
+  // 只有配送中状态才能确认完成
+  const isDelivering = isDeliveringStatus(o.status)
+  const notConfirmed = !locallyConfirmed.value[id]
+  return isDelivering && notConfirmed
 }
 
-function pickItems(data: any): OrderRow[] {
+function canApplyRefund(o: OrderRow) {
+  // 只有配送中状态才能申请退款，已完成的不显示
+  const isDelivering = isDeliveringStatus(o.status)
+  const notRefunded = !(o as any).hasRefunded
+  return isDelivering && notRefunded
+}
+
+function isTruthyFlag(value: unknown) {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value > 0
+  if (value && typeof value === 'object') return true
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase()
+  return ['1', 'true', 'yes', 'reviewed', 'done', 'completed', '已评价'].includes(normalized)
+}
+
+
+
+
+
+function hasReviewed(o: OrderRow) {
+  // 跑腿员侧不显示已评价状态
+  if (activeTab.value === 'taken') return false
+  
+  const orderId = toOrderId(o)
+  if (!orderId) return false
+  if (locallyReviewed.value[orderId]) return true
+
+  const row: any = o as any
+  const roleSpecificFlags =
+    activeTab.value === 'published'
+      ? [
+          row?.publisher_reviewed,
+          row?.publisherReviewed,
+          row?.user_reviewed,
+          row?.userReviewed,
+          row?.customer_reviewed,
+          row?.customerReviewed,
+        ]
+      : [
+          row?.runner_reviewed,
+          row?.runnerReviewed,
+          row?.taker_reviewed,
+          row?.takerReviewed,
+          row?.courier_reviewed,
+          row?.courierReviewed,
+        ]
+
+  const genericFlags = [
+    row?.has_review,
+    row?.hasReview,
+    row?.has_reviewed,
+    row?.hasReviewed,
+    row?.is_reviewed,
+    row?.isReviewed,
+    row?.reviewed,
+    row?.my_review,
+    row?.myReview,
+    row?.review,
+    row?.review_id,
+    row?.reviewId,
+    row?.review_status,
+    row?.reviewStatus,
+  ]
+
+  return [...roleSpecificFlags, ...genericFlags].some((value) => isTruthyFlag(value))
+}
+
+function canReviewBase(o: OrderRow) {
+  const orderId = toOrderId(o)
+  if (!orderId) return false
+  // 只有已完成状态才能评价
+  if (!isCompletedStatus(o.status)) return false
+  // 跑腿员不能评价
+  if (activeTab.value === 'taken') return false
+  return true
+}
+function canReview(o: OrderRow) {
+  // 跑腿员不能评价
+  if (activeTab.value === 'taken') return false
+  
+  const orderId = toOrderId(o)
+  if (!orderId) return false
+  // 只有已完成状态才能评价
+  if (!isCompletedStatus(o.status)) return false
+  // 如果已评价，不显示
+  if (hasReviewed(o)) return false
+  return true
+}
+
+function syncReviewImages() {
+  reviewForm.images = reviewFileList.value
+    .map((file) => reviewImageMap.value[String(file.uid)])
+    .filter((url): url is string => Boolean(url))
+}
+
+function resetReviewState() {
+  reviewForm.rating = 0
+  reviewForm.tags = []
+  reviewForm.content = ''
+  reviewForm.images = []
+  reviewFileList.value = []
+  reviewImageMap.value = {}
+}
+
+function openReviewDialog(o: OrderRow) {
+  if (!canReview(o)) return
+  currentReviewOrder.value = o
+  resetReviewState()
+  reviewDialogVisible.value = true
+  void nextTick(() => {
+    reviewFormRef.value?.clearValidate()
+  })
+}
+
+function closeReviewDialog() {
+  if (reviewSubmitting.value) return
+  reviewDialogVisible.value = false
+}
+
+function handleReviewDialogClosed() {
+  currentReviewOrder.value = null
+  resetReviewState()
+  reviewFormRef.value?.clearValidate()
+}
+
+function onReviewUploadSuccess(response: any, uploadFile: UploadFile, uploadFiles: UploadFiles) {
+  try {
+    const url = normalizeUploadUrl(response)
+    reviewImageMap.value = { ...reviewImageMap.value, [String(uploadFile.uid)]: url }
+    uploadFile.url = toFullUrl(url)
+    const target = uploadFiles.find((file) => file.uid === uploadFile.uid)
+    if (target) target.url = toFullUrl(url)
+    reviewFileList.value = uploadFiles as unknown as UploadUserFile[]
+    syncReviewImages()
+  } catch (err: any) {
+    ElMessage.error(err?.message || '图片上传失败')
+  }
+}
+
+function onReviewUploadRemove(uploadFile: UploadFile, uploadFiles: UploadFiles) {
+  const nextMap = { ...reviewImageMap.value }
+  delete nextMap[String(uploadFile.uid)]
+  reviewImageMap.value = nextMap
+  reviewFileList.value = uploadFiles as unknown as UploadUserFile[]
+  syncReviewImages()
+}
+
+function onReviewUploadExceed() {
+  ElMessage.warning('最多上传 3 张图片')
+}
+
+function onReviewUploadError() {
+  ElMessage.error('图片上传失败')
+}
+
+async function submitReview() {
+  const targetOrder = currentReviewOrder.value
+  if (!targetOrder) return
+  if (reviewFileList.value.some((file) => file.status === 'uploading')) {
+    ElMessage.warning('图片上传中，请稍候再提交')
+    return
+  }
+
+  const valid = await reviewFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+
+  const orderId = toOrderId(targetOrder)
+  if (!orderId) return
+
+  reviewSubmitting.value = true
+  try {
+    syncReviewImages()
+    await submitOrderReview(orderId, {
+      rating: Number(reviewForm.rating),
+      tags: [...reviewForm.tags],
+      content: reviewForm.content.trim(),
+      images: [...reviewForm.images],
+    })
+    locallyReviewed.value = { ...locallyReviewed.value, [orderId]: true }
+    reviewDialogVisible.value = false
+    ElMessage.success('评价提交成功')
+    await loadOrders()
+  } catch (err: any) {
+    ElMessage.error(getErrorMessage(err))
+  } finally {
+    reviewSubmitting.value = false
+  }
+}
+
+function pickItems(data: any, type: TabKey): OrderRow[] {
   const root = data?.data ?? data
   const items = root?.items ?? root?.list ?? root?.rows ?? root?.records ?? root?.result ?? []
   if (!Array.isArray(items)) return []
-  return (items as any[]).map((it) => {
-    const orderId = pickOrderIdFromRow(it)
-    const taskId = String(it?.task_id ?? it?.taskId ?? it?.task?.id ?? it?.id ?? '').trim()
-    const normalized: any = { ...(it as any) }
-    if (orderId && normalized.order_id === undefined) normalized.order_id = orderId
-    if (taskId && normalized.task_id === undefined) normalized.task_id = taskId
-    return normalized as OrderRow
-  })
+  return (items as any[])
+    .map((it) => {
+      const task = it?.task ?? {}
+      const orderId = pickOrderIdFromRow(it)
+      const taskId = String(it?.task_id ?? it?.taskId ?? task?.id ?? it?.id ?? '').trim()
+      const normalized: any = { ...(it as any) }
+      if (orderId && normalized.order_id === undefined) normalized.order_id = orderId
+      if (taskId && normalized.task_id === undefined) normalized.task_id = taskId
+      if (normalized.status === undefined && task?.status !== undefined) normalized.status = task.status
+      if (normalized.pickup_address === undefined && task?.pickup_address !== undefined) normalized.pickup_address = task.pickup_address
+      if (normalized.pickupAddress === undefined && task?.pickupAddress !== undefined) normalized.pickupAddress = task.pickupAddress
+      if (normalized.delivery_address === undefined && task?.delivery_address !== undefined) normalized.delivery_address = task.delivery_address
+      if (normalized.deliveryAddress === undefined && task?.deliveryAddress !== undefined) normalized.deliveryAddress = task.deliveryAddress
+      if (normalized.fee_total === undefined && task?.fee_total !== undefined) normalized.fee_total = task.fee_total
+      if (normalized.final_price === undefined && task?.final_price !== undefined) normalized.final_price = task.final_price
+      return normalized as OrderRow
+    })
+    .filter((row) => {
+      const status = pickStatusFromRow(row)
+      if (type === 'published') {
+        return hasTaskOrOrderId(row) && isPublishedVisibleStatus(status)
+      }
+      return Boolean(pickOrderIdFromRow(row)) && isTakenVisibleStatus(status)
+    })
 }
 
 function buildListUrl(type: TabKey) {
@@ -533,7 +833,7 @@ async function fetchPublished() {
     console.log('[MyOrders] GET', `${baseURL.replace(/\/$/, '')}${url}`)
     const resp = await http.get(url)
     console.log('[MyOrders] published response', resp.data)
-    publishedRows.value = pickItems(resp.data)
+    publishedRows.value = pickItems(resp.data, 'published')
   } catch (err: any) {
     errorMessage.value = getErrorMessage(err)
   } finally {
@@ -549,7 +849,7 @@ async function fetchTaken() {
     console.log('[MyOrders] GET', `${baseURL.replace(/\/$/, '')}${url}`)
     const resp = await http.get(url)
     console.log('[MyOrders] taken response', resp.data)
-    takenRows.value = pickItems(resp.data)
+    takenRows.value = pickItems(resp.data, 'taken')
     pruneDeliveringProgress(takenRows.value)
   } catch (err: any) {
     errorMessage.value = getErrorMessage(err)
@@ -566,6 +866,18 @@ async function refresh() {
 
 async function loadOrders() {
   return refresh()
+}
+
+function removeOrderRowLocally(o: OrderRow) {
+  const targetId = pickOrderIdFromRow(o)
+  if (!targetId) return
+  if (activeTab.value === 'taken') {
+    takenRows.value = takenRows.value.filter((row) => pickOrderIdFromRow(row) !== targetId)
+    pruneDeliveringProgress(takenRows.value)
+    startDeliveringTimerIfNeeded()
+    return
+  }
+  publishedRows.value = publishedRows.value.filter((row) => pickOrderIdFromRow(row) !== targetId)
 }
 
 function setTab(next: TabKey) {
@@ -602,16 +914,33 @@ async function onUrge(o: OrderRow) {
 }
 
 async function onCancel(o: OrderRow) {
-  if (!isCancelableStatus(o.status)) return
+  const status = pickStatusFromRow(o)
+  if (!isCancelableStatus(status)) return
   const ok = window.confirm('确认取消该订单？')
   if (!ok) return
   const orderId = toOrderId(o)
   const taskId = pickTaskIdFromRow(o)
-  
-  if (orderId) {
-    await runAction(String(o.id), 'cancel', () => cancelOrder(orderId), '订单已取消')
-  } else if (taskId) {
-    await runAction(String(o.id), 'cancel', () => http.delete(`/task/${encodeURIComponent(taskId)}/cancel`), '任务已取消')
+  if (!orderId && !taskId) return
+  if (loading.value) return
+  const rowId = String(o.id)
+  if (busyAction.value[rowId]) return
+
+  busyAction.value = { ...busyAction.value, [rowId]: 'cancel' }
+  try {
+    const shouldCancelTask = status === 'PENDING' || (!orderId && !!taskId)
+    if (shouldCancelTask) {
+      await cancelTask(taskId)
+      ElMessage.success('任务已取消')
+    } else if (orderId) {
+      await cancelOrder(orderId)
+      ElMessage.success('订单已取消')
+    }
+    removeOrderRowLocally(o)
+    await loadOrders()
+  } catch (err: any) {
+    ElMessage.error(getErrorMessage(err))
+  } finally {
+    busyAction.value = { ...busyAction.value, [rowId]: undefined }
   }
 }
 
@@ -646,6 +975,45 @@ async function onConfirm(o: OrderRow) {
   }
 }
 
+// 申请退款
+function applyRefund(o: OrderRow) {
+  if (!canApplyRefund(o)) {
+    ElMessage.warning('当前状态无法申请退款')
+    return
+  }
+  currentRefundOrder.value = o
+  refundReason.value = ''
+  refundDescription.value = ''
+  refundDialogVisible.value = true
+}
+
+async function submitRefund() {
+  if (!refundReason.value) {
+    ElMessage.warning('请选择退款原因')
+    return
+  }
+  if (!currentRefundOrder.value) return
+  
+  refundSubmitting.value = true
+  try {
+    const orderId = toOrderId(currentRefundOrder.value)
+    await http.post(`/order/${orderId}/refund`, {
+      reason: refundReason.value,
+      description: refundDescription.value
+    })
+    
+    ElMessage.success('退款申请已提交，请等待管理员审核')
+    refundDialogVisible.value = false
+    
+    await loadOrders()
+    
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.message || '提交失败')
+  } finally {
+    refundSubmitting.value = false
+  }
+}
+
 async function onPickup(o: OrderRow) {
   const orderId = toOrderId(o)
   if (!orderId) return
@@ -670,31 +1038,6 @@ function openDeliveryPhotoDialog(orderId: string) {
   runnerPhotoFileList.value = []
   runnerPhotoUrl.value = ''
   runnerPhotoVisible.value = true
-}
-
-async function onComplete(o: OrderRow) {
-  const orderId = toOrderId(o)
-  if (!orderId) return
-  if (loading.value) return
-  const rowId = String(o.id)
-  if (busyAction.value[rowId]) return
-  busyAction.value = { ...busyAction.value, [rowId]: 'complete' }
-  try {
-    await completeOrder(orderId)
-    ElMessage.success('订单已完成，请上传送达照片')
-    openDeliveryPhotoDialog(orderId)
-    await loadOrders()
-  } catch (err: any) {
-    ElMessage.error(getErrorMessage(err))
-  } finally {
-    busyAction.value = { ...busyAction.value, [rowId]: undefined }
-  }
-}
-
-async function onUploadDeliveryPhoto(o: OrderRow) {
-  const orderId = toOrderId(o)
-  if (!orderId) return
-  openDeliveryPhotoDialog(orderId)
 }
 
 function onRunnerPhotoSuccess(response: any, uploadFile: UploadFile, uploadFiles: UploadFiles) {
@@ -781,6 +1124,63 @@ onMounted(() => {
 onUnmounted(() => {
   clearDeliveringTimer()
 })
+
+function runnerDisplayLabel(o: OrderRow) {
+  const s = normalizeStatus(o.status)
+  if ((s === 'DELIVERING' || s === 'DELIVER') && stageProgress(o) >= 1) return '已完成'
+  return statusLabel(o.status)
+}
+
+function runnerDisplayBadgeClass(o: OrderRow) {
+  const s = normalizeStatus(o.status)
+  if ((s === 'DELIVERING' || s === 'DELIVER') && stageProgress(o) >= 1) return 'badge text-bg-success'
+  return statusBadgeClass(o.status)
+}
+
+function publishedDisplayLabel(o: OrderRow) {
+  const id = toOrderId(o)
+  // 已完成状态直接显示「已完成」
+  if (isCompletedStatus(o.status)) return '已完成'
+  // 本地确认标记优先
+  if (id && locallyConfirmed.value[id]) return '已完成'
+  if (isAwaitingUserConfirmStatus(o.status)) return '待确认'
+  return statusLabel(o.status)
+}
+
+function publishedDisplayBadgeClass(o: OrderRow) {
+  const id = toOrderId(o)
+  // 已完成状态用绿色
+  if (isCompletedStatus(o.status)) return 'badge text-bg-success'
+  if (id && locallyConfirmed.value[id]) return 'badge text-bg-success'
+  if (isAwaitingUserConfirmStatus(o.status)) return 'badge text-bg-warning'
+  return statusBadgeClass(o.status)
+}
+
+function canRunnerMarkDelivered(o: OrderRow) {
+  return runnerNextAction(o.status) === 'markDelivered' && stageProgress(o) >= 1 && !isCompletedStatus(o.status)
+}
+
+async function onMarkDelivered(o: OrderRow) {
+  const orderId = toOrderId(o)
+  if (!orderId) return
+  if (loading.value) return
+  const rowId = String(o.id)
+  if (busyAction.value[rowId]) return
+  const ok = window.confirm('确认已送达？')
+  if (!ok) return
+
+  busyAction.value = { ...busyAction.value, [rowId]: 'markDelivered' }
+  try {
+    await completeOrder(orderId)
+    ElMessage.success('已标记送达，等待用户确认')
+    openDeliveryPhotoDialog(orderId)
+    await loadOrders()
+  } catch (err: any) {
+    ElMessage.error(getErrorMessage(err))
+  } finally {
+    busyAction.value = { ...busyAction.value, [rowId]: undefined }
+  }
+}
 </script>
 
 <template>
@@ -839,7 +1239,7 @@ onUnmounted(() => {
                 <div class="vstack gap-1">
                   <template v-if="activeTab === 'taken'">
                     <div class="d-flex flex-wrap align-items-center gap-2">
-                      <span :class="statusBadgeClass(o.status)">{{ statusLabelForRow(o) }}</span>
+                      <span :class="runnerDisplayBadgeClass(o)">{{ runnerDisplayLabel(o) }}</span>
                     </div>
                     <div class="text-muted small">取件地址：{{ pickupAddressText(o) }}</div>
                     <div class="text-muted small">送达地址：{{ deliveryAddressText(o) }}</div>
@@ -863,55 +1263,83 @@ onUnmounted(() => {
                   <template v-else>
                     <div class="d-flex flex-wrap align-items-center gap-2">
                       <div class="fw-semibold">{{ taskAddress(o) }}</div>
-                      <span :class="statusBadgeClass(o.status)">{{ statusLabel(o.status) }}</span>
+                      <span :class="publishedDisplayBadgeClass(o)">{{ publishedDisplayLabel(o) }}</span>
                     </div>
                     <div class="text-muted small">金额：¥ {{ getAmount(o) }}</div>
                   </template>
                 </div>
 
                 <div class="d-flex flex-wrap gap-2">
-                  <template v-if="activeTab === 'published'">
-                    <button class="btn btn-outline-primary btn-sm" type="button" :disabled="loading" @click="openDetail(o)">
-                      详情
-                    </button>
-                    <button
-                      v-if="o.order_id"
-                      class="btn btn-outline-secondary btn-sm"
-                      type="button"
-                      :disabled="loading"
-                      @click="openChat(o)"
-                    >
-                      联系跑腿员
-                    </button>
-                    <button
-                      v-if="canUrge(o)"
-                      class="btn btn-outline-secondary btn-sm"
-                      type="button"
-                      :disabled="loading || isBusy(o.id, 'urge')"
-                      @click="onUrge(o)"
-                    >
-                      催单
-                    </button>
-                    <button
-                      v-if="canCancel(o)"
-                      class="btn btn-outline-danger btn-sm"
-                      type="button"
-                      :disabled="loading || isBusy(o.id, 'cancel')"
-                      @click="onCancel(o)"
-                    >
-                      取消订单
-                    </button>
-                    <button
-                      v-if="canConfirm(o)"
-                      class="btn btn-primary btn-sm"
-                      type="button"
-                      :disabled="loading || isBusy(o.id, 'confirm')"
-                      @click="onConfirm(o)"
-                    >
-                      确认完成
-                    </button>
-                  </template>
+                  <!-- 我发布的订单（用户侧） -->
+                <template v-if="activeTab === 'published'">
+  <button class="btn btn-outline-primary btn-sm" type="button" :disabled="loading" @click="openDetail(o)">
+    详情
+  </button>
+  <button
+    v-if="o.order_id"
+    class="btn btn-outline-secondary btn-sm"
+    type="button"
+    :disabled="loading"
+    @click="openChat(o)"
+  >
+    联系跑腿员
+  </button>
+  <button
+    v-if="canUrge(o)"
+    class="btn btn-outline-secondary btn-sm"
+    type="button"
+    :disabled="loading || isBusy(o.id, 'urge')"
+    @click="onUrge(o)"
+  >
+    催单
+  </button>
+  <button
+    v-if="canCancel(o)"
+    class="btn btn-outline-danger btn-sm"
+    type="button"
+    :disabled="loading || isBusy(o.id, 'cancel')"
+    @click="onCancel(o)"
+  >
+    取消订单
+  </button>
+  <button
+    v-if="canConfirm(o)"
+    class="btn btn-success btn-sm"
+    type="button"
+    :disabled="loading || isBusy(o.id, 'confirm')"
+    @click="onConfirm(o)"
+  >
+    确认完成
+  </button>
+  <button
+    v-if="canApplyRefund(o)"
+    class="btn btn-warning btn-sm"
+    type="button"
+    :disabled="loading"
+    @click="applyRefund(o)"
+  >
+    申请退款
+  </button>
+  <button
+    v-if="canReviewBase(o) && hasReviewed(o)"
+    class="btn btn-secondary btn-sm"
+    type="button"
+    disabled
+  >
+    已评价
+  </button>
+  <button
+    v-else-if="canReview(o)"
+    class="btn btn-outline-warning btn-sm"
+    type="button"
+    :disabled="loading"
+    @click="openReviewDialog(o)"
+  >
+    评价
+  </button>
+</template>
 
+                  <!-- 我接单的订单（跑腿员侧） -->
                   <template v-else-if="activeTab === 'taken'">
                     <button class="btn btn-outline-primary btn-sm" type="button" :disabled="loading" @click="openDetail(o)">
                       详情
@@ -938,22 +1366,30 @@ onUnmounted(() => {
                       开始配送
                     </button>
                     <button
-                      v-if="runnerNextAction(o.status) === 'uploadDeliveryPhoto'"
+                      v-if="canRunnerMarkDelivered(o)"
                       class="btn btn-primary btn-sm"
                       type="button"
-                      :disabled="loading"
-                      @click="onUploadDeliveryPhoto(o)"
+                      :disabled="loading || isBusy(o.id, 'markDelivered')"
+                      @click="onMarkDelivered(o)"
                     >
-                      上传送达照片
+                      标记已送达
                     </button>
                     <button
-                      v-if="runnerNextAction(o.status) === 'complete'"
-                      class="btn btn-primary btn-sm"
+                      v-if="canReviewBase(o) && hasReviewed(o)"
+                      class="btn btn-secondary btn-sm"
                       type="button"
-                      :disabled="loading || isBusy(o.id, 'complete')"
-                      @click="onComplete(o)"
+                      disabled
                     >
-                      完成订单
+                      已评价
+                    </button>
+                    <button
+                      v-else-if="canReview(o)"
+                      class="btn btn-outline-warning btn-sm"
+                      type="button"
+                      :disabled="loading"
+                      @click="openReviewDialog(o)"
+                    >
+                      评价
                     </button>
                   </template>
                 </div>
@@ -965,6 +1401,101 @@ onUnmounted(() => {
     </div>
   </div>
 
+  <!-- 申请退款弹窗 -->
+  <el-dialog v-model="refundDialogVisible" title="申请退款" width="500px">
+    <el-form>
+      <el-form-item label="订单号">
+        <el-input :value="currentRefundOrder?.id" disabled />
+      </el-form-item>
+      <el-form-item label="订单金额">
+        <el-input :value="'¥' + getAmount(currentRefundOrder)" disabled />
+      </el-form-item>
+      <el-form-item label="退款原因" required>
+        <el-select v-model="refundReason" placeholder="请选择退款原因" style="width: 100%">
+          <el-option label="物品损坏" value="物品损坏" />
+          <el-option label="超时送达" value="超时送达" />
+          <el-option label="跑腿员态度差" value="跑腿员态度差" />
+          <el-option label="物品丢失" value="物品丢失" />
+          <el-option label="其他" value="其他" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="详细说明">
+        <el-input
+          v-model="refundDescription"
+          type="textarea"
+          rows="3"
+          placeholder="请详细说明退款原因"
+        />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="refundDialogVisible = false">取消</el-button>
+      <el-button type="primary" :loading="refundSubmitting" @click="submitRefund">提交申请</el-button>
+    </template>
+  </el-dialog>
+
+  <!-- 评价弹窗 -->
+  <el-dialog
+    v-model="reviewDialogVisible"
+    title="订单评价"
+    width="620px"
+    :close-on-click-modal="!reviewSubmitting"
+    @closed="handleReviewDialogClosed"
+  >
+    <el-form ref="reviewFormRef" :model="reviewForm" :rules="reviewRules" label-position="top">
+      <el-form-item label="订单号">
+        <el-input :model-value="currentReviewOrder ? toOrderId(currentReviewOrder) : ''" disabled />
+      </el-form-item>
+      <el-form-item label="评分" prop="rating" required>
+        <el-rate v-model="reviewForm.rating" />
+      </el-form-item>
+      <el-form-item label="评价标签">
+        <el-checkbox-group v-model="reviewForm.tags" class="review-tag-options">
+          <el-checkbox-button v-for="tag in REVIEW_TAG_OPTIONS" :key="tag" :label="tag" :value="tag">
+            {{ tag }}
+          </el-checkbox-button>
+        </el-checkbox-group>
+      </el-form-item>
+      <el-form-item label="文字评价">
+        <el-input
+          v-model="reviewForm.content"
+          type="textarea"
+          :rows="4"
+          maxlength="200"
+          show-word-limit
+          placeholder="请输入评价内容，最多 200 字"
+        />
+      </el-form-item>
+      <el-form-item label="上传图片">
+        <el-upload
+          v-model:file-list="reviewFileList"
+          :action="uploadAction"
+          name="image"
+          accept="image/*"
+          list-type="picture-card"
+          :limit="3"
+          multiple
+          :headers="uploadHeaders"
+          :disabled="reviewSubmitting"
+          :on-success="onReviewUploadSuccess"
+          :on-remove="onReviewUploadRemove"
+          :on-error="onReviewUploadError"
+          :on-exceed="onReviewUploadExceed"
+        >
+          <div>上传</div>
+        </el-upload>
+        <div class="form-text">最多上传 3 张图片，可选。</div>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <div class="d-flex justify-content-end gap-2">
+        <el-button :disabled="reviewSubmitting" @click="closeReviewDialog">取消</el-button>
+        <el-button type="primary" :loading="reviewSubmitting" @click="submitReview">提交评价</el-button>
+      </div>
+    </template>
+  </el-dialog>
+
+  <!-- 跑腿员上传照片弹窗 -->
   <el-dialog
     v-model="runnerPhotoVisible"
     :title="runnerPhotoMode === 'pickup' ? '取件上传照片' : '送达上传照片'"

@@ -1,3 +1,4 @@
+import type { AxiosRequestConfig } from 'axios'
 import { http, sleep } from './request'
 
 export type AdminUser = {
@@ -180,6 +181,11 @@ export type AdminAuthStatus = 'pending' | 'approved' | 'rejected' | string
 export type AdminAuthRow = {
   id: string
   applicantName: string
+  studentId?: string
+  phone?: string
+  idCardNo?: string
+  dormBuilding?: string
+  applyReason?: string
   card_image_url?: string
   campusCardPhotoUrl: string
   appliedAt?: string
@@ -221,36 +227,75 @@ function normalizeAdminAuthRow(raw: any): AdminAuthRow {
   const applicantName =
     String(
       r?.applicantName ??
-        r?.applicant_name ??
-        r?.name ??
-        r?.realName ??
-        r?.real_name ??
-        r?.nickname ??
-        r?.userName ??
-        r?.user_name ??
-        r?.user?.name ??
-        r?.user?.realName ??
-        r?.user?.nickname ??
-        '',
+      r?.applicant_name ??
+      r?.name ??
+      r?.realName ??
+      r?.real_name ??
+      r?.nickname ??
+      r?.userName ??
+      r?.user_name ??
+      r?.user?.name ??
+      r?.user?.realName ??
+      r?.user?.nickname ??
+      '',
     ).trim() || id
+
+  const studentId = String(
+    r?.student_id ??
+      r?.studentId ??
+      r?.sid ??
+      r?.user?.student_id ??
+      r?.user?.studentId ??
+      r?.user?.sid ??
+      '',
+  ).trim()
+
+  const phone = String(r?.phone ?? r?.mobile ?? r?.tel ?? r?.user?.phone ?? r?.user?.mobile ?? r?.user?.tel ?? '').trim()
+
+  const idCardNo = String(
+    r?.id_card_no ??
+      r?.idCardNo ??
+      r?.idcard ??
+      r?.id_card ??
+      r?.identity_no ??
+      r?.identityNo ??
+      r?.user?.id_card_no ??
+      r?.user?.idCardNo ??
+      '',
+  ).trim()
+
+  const dormBuilding = String(
+    r?.dorm_building ?? r?.dormBuilding ?? r?.dorm ?? r?.dormitory ?? r?.dormitory_building ?? '',
+  ).trim()
+
+  const applyReason = String(
+    r?.apply_reason ??
+      r?.applyReason ??
+      r?.reason ??
+      r?.advantage ??
+      r?.advantages ??
+      r?.apply_advantage ??
+      r?.applyAdvantages ??
+      '',
+  ).trim()
 
   const card_image_url = String(r?.card_image_url ?? r?.cardImageUrl ?? r?.cardImageURL ?? '').trim()
 
   const campusCardPhotoUrl = String(
     r?.campusCardPhotoUrl ??
-      r?.campus_card_photo_url ??
-      r?.campusCardPhoto ??
-      r?.campus_card_photo ??
-      r?.cardPhoto ??
-      r?.card_photo ??
-      r?.cardImage ??
-      r?.card_image_url ??
-      r?.card_image ??
-      r?.photo ??
-      r?.img ??
-      r?.image ??
-      r?.url ??
-      '',
+    r?.campus_card_photo_url ??
+    r?.campusCardPhoto ??
+    r?.campus_card_photo ??
+    r?.cardPhoto ??
+    r?.card_photo ??
+    r?.cardImage ??
+    r?.card_image_url ??
+    r?.card_image ??
+    r?.photo ??
+    r?.img ??
+    r?.image ??
+    r?.url ??
+    '',
   ).trim()
 
   const appliedAt =
@@ -277,6 +322,11 @@ function normalizeAdminAuthRow(raw: any): AdminAuthRow {
   return {
     id,
     applicantName,
+    studentId: studentId || undefined,
+    phone: phone || undefined,
+    idCardNo: idCardNo || undefined,
+    dormBuilding: dormBuilding || undefined,
+    applyReason: applyReason || undefined,
     card_image_url: card_image_url || undefined,
     campusCardPhotoUrl: campusCardPhotoUrl || card_image_url,
     appliedAt,
@@ -394,45 +444,45 @@ function normalizeAdminOrder(raw: any): AdminOrderRow {
 
   const pickupAddress = String(
     root?.pickup_address ??
-      root?.pickupAddress ??
-      root?.task?.pickup_address ??
-      root?.task?.pickupAddress ??
-      root?.task?.pickup ??
-      '',
+    root?.pickupAddress ??
+    root?.task?.pickup_address ??
+    root?.task?.pickupAddress ??
+    root?.task?.pickup ??
+    '',
   ).trim()
   const deliveryAddress = String(
     root?.delivery_address ??
-      root?.deliveryAddress ??
-      root?.task?.delivery_address ??
-      root?.task?.deliveryAddress ??
-      root?.task?.delivery ??
-      '',
+    root?.deliveryAddress ??
+    root?.task?.delivery_address ??
+    root?.task?.deliveryAddress ??
+    root?.task?.delivery ??
+    '',
   ).trim()
 
   const taskAddress = pickupAddress && deliveryAddress ? `${pickupAddress} → ${deliveryAddress}` : pickupAddress || deliveryAddress || '-'
 
   const userNickname = String(
     root?.userNickname ??
-      root?.user_nickname ??
-      root?.publisherNickname ??
-      root?.publisher_nickname ??
-      root?.user?.nickname ??
-      root?.publisher?.nickname ??
-      root?.user?.name ??
-      root?.publisher?.name ??
-      '',
+    root?.user_nickname ??
+    root?.publisherNickname ??
+    root?.publisher_nickname ??
+    root?.user?.nickname ??
+    root?.publisher?.nickname ??
+    root?.user?.name ??
+    root?.publisher?.name ??
+    '',
   ).trim()
 
   const runnerNickname = String(
     root?.runnerNickname ??
-      root?.runner_nickname ??
-      root?.takerNickname ??
-      root?.taker_nickname ??
-      root?.runner?.nickname ??
-      root?.taker?.nickname ??
-      root?.runner?.name ??
-      root?.taker?.name ??
-      '',
+    root?.runner_nickname ??
+    root?.takerNickname ??
+    root?.taker_nickname ??
+    root?.runner?.nickname ??
+    root?.taker?.nickname ??
+    root?.runner?.name ??
+    root?.taker?.name ??
+    '',
   ).trim()
 
   const explicitAmount =
@@ -478,7 +528,10 @@ function normalizeAdminOrderListResponse(data: any): AdminOrderListResult {
   return { list, total: Number.isFinite(total) ? total : list.length }
 }
 
-export async function listAdminOrders(query: AdminOrderListQuery): Promise<AdminOrderListResult> {
+export async function listAdminOrders(
+  query: AdminOrderListQuery,
+  config?: Pick<AxiosRequestConfig, 'timeout' | 'signal'>,
+): Promise<AdminOrderListResult> {
   const params: Record<string, any> = {
     page: query.page,
     pageSize: query.pageSize,
@@ -499,7 +552,7 @@ export async function listAdminOrders(query: AdminOrderListQuery): Promise<Admin
     if (v === undefined || v === null || v === '') delete params[k]
   })
 
-  const response = await http.get('/admin/orders', { params })
+  const response = await http.get('/admin/orders', { params, ...config })
   return normalizeAdminOrderListResponse(response.data)
 }
 
@@ -597,23 +650,290 @@ export async function getAdminHeatmap(): Promise<AdminHeatmapRegion[]> {
     .filter((x): x is AdminHeatmapRegion => Boolean(x))
 }
 
+export type AdminReportStatus = 'pending' | 'processed' | 'rejected' | 'invalid' | string
+
+export type AdminReportRow = {
+  id: string
+  orderId: string
+  reporter: string
+  accused: string
+  reportType: string
+  content: string
+  status: AdminReportStatus
+  createdAt?: string
+  processedAt?: string
+  processedBy?: string
+  processResult?: string
+  orderSnapshot?: any
+}
+
+export type AdminReportListQuery = {
+  page: number
+  pageSize: number
+  status?: string
+  page_size?: number
+}
+
+export type AdminReportListResult = {
+  list: AdminReportRow[]
+  total: number
+}
+
+function pickListForReports(data: any): any[] {
+  if (Array.isArray(data)) return data
+  const root = data?.data ?? data
+  const list =
+    root?.list ??
+    root?.rows ??
+    root?.items ??
+    root?.records ??
+    root?.result ??
+    root?.reports ??
+    root?.reportList ??
+    root?.data ??
+    []
+  return Array.isArray(list) ? list : []
+}
+
+function normalizeAdminReport(raw: any): AdminReportRow {
+  const r = raw?.data ?? raw
+  const id = String(r?.id ?? r?.reportId ?? r?.report_id ?? r?._id ?? '').trim() || 'unknown'
+  const orderId = String(r?.orderId ?? r?.order_id ?? r?.order?.id ?? r?.order?.orderId ?? r?.orderNo ?? r?.order_no ?? '')
+    .trim()
+    .replace(/^order[_-]?/i, '')
+    .trim()
+
+  const reporter = String(
+    r?.reporter ??
+    r?.reporterName ??
+    r?.reporter_name ??
+    r?.fromUserName ??
+    r?.from_user_name ??
+    r?.userNickname ??
+    r?.user_nickname ??
+    r?.user?.nickname ??
+    r?.user?.name ??
+    r?.fromUser?.nickname ??
+    r?.fromUser?.name ??
+    '',
+  ).trim()
+
+  const accused = String(
+    r?.accused ??
+    r?.accusedName ??
+    r?.accused_name ??
+    r?.toUserName ??
+    r?.to_user_name ??
+    r?.targetNickname ??
+    r?.target_nickname ??
+    r?.target?.nickname ??
+    r?.target?.name ??
+    r?.toUser?.nickname ??
+    r?.toUser?.name ??
+    '',
+  ).trim()
+
+  const reportType = String(
+    r?.reportType ??
+    r?.report_type ??
+    r?.type ??
+    r?.category ??
+    r?.reasonType ??
+    r?.reason_type ??
+    r?.reason ??
+    '',
+  ).trim()
+
+  const content = String(r?.content ?? r?.description ?? r?.desc ?? r?.remark ?? r?.message ?? '').trim()
+
+  const status = String(r?.status ?? r?.state ?? r?.processStatus ?? r?.process_status ?? r?.result ?? '').trim() || 'pending'
+
+  const createdAt =
+    r?.createdAt !== undefined
+      ? String(r.createdAt)
+      : r?.created_at !== undefined
+        ? String(r.created_at)
+        : r?.submitTime !== undefined
+          ? String(r.submitTime)
+          : r?.submit_time !== undefined
+            ? String(r.submit_time)
+            : r?.time !== undefined
+              ? String(r.time)
+              : undefined
+
+  const processedAt =
+    r?.processedAt !== undefined
+      ? String(r.processedAt)
+      : r?.processed_at !== undefined
+        ? String(r.processed_at)
+        : r?.processTime !== undefined
+          ? String(r.processTime)
+          : r?.process_time !== undefined
+            ? String(r.process_time)
+            : undefined
+
+  const processedBy = String(
+    r?.processedBy ??
+    r?.processed_by ??
+    r?.processor ??
+    r?.processorName ??
+    r?.processor_name ??
+    r?.adminName ??
+    r?.admin_name ??
+    r?.admin?.nickname ??
+    r?.admin?.name ??
+    '',
+  ).trim()
+
+  const processResult = String(
+    r?.processResult ??
+    r?.process_result ??
+    r?.result ??
+    r?.decision ??
+    r?.action ??
+    '',
+  ).trim()
+
+  const orderSnapshot = r?.orderSnapshot ?? r?.order_snapshot ?? r?.snapshot ?? r?.order ?? r?.orderInfo ?? undefined
+
+  return {
+    id,
+    orderId: orderId || '-',
+    reporter: reporter || '-',
+    accused: accused || '-',
+    reportType: reportType || '-',
+    content: content || '-',
+    status,
+    createdAt,
+    processedAt,
+    processedBy: processedBy || undefined,
+    processResult: processResult || undefined,
+    orderSnapshot,
+  }
+}
+
+function normalizeAdminReportListResponse(data: any): AdminReportListResult {
+  const arr = pickListForReports(data)
+  const root = data?.data ?? data
+  const total = Number(root?.total ?? root?.count ?? root?.pagination?.total ?? arr.length)
+  return { list: arr.map((it) => normalizeAdminReport(it)), total: Number.isFinite(total) ? total : arr.length }
+}
+
+export async function listAdminReports(query: AdminReportListQuery): Promise<AdminReportListResult> {
+  const params: Record<string, any> = {
+    page: query.page,
+    pageSize: query.pageSize,
+    page_size: query.page_size ?? query.pageSize,
+    limit: query.pageSize,
+    per_page: query.pageSize,
+    status: query.status,
+    state: query.status,
+  }
+  Object.keys(params).forEach((k) => {
+    const v = params[k]
+    if (v === undefined || v === null || v === '') delete params[k]
+  })
+
+  const response = await http.get('/admin/reports', { params })
+  return normalizeAdminReportListResponse(response.data)
+}
+
+export async function getAdminReportDetail(id: string): Promise<AdminReportRow> {
+  const rid = String(id ?? '').trim()
+  const response = await http.get(`/admin/reports/${encodeURIComponent(rid)}`)
+  const root = response.data?.data ?? response.data
+  return normalizeAdminReport(root)
+}
+
+export async function processAdminReport(
+  id: string,
+  input: {
+    action: 'approve' | 'reject' | 'invalid'
+    punish?: 'ban' | 'deduct'
+    banDays?: number
+    deductPoints?: number
+    note?: string
+  },
+): Promise<{ raw: any }> {
+  const rid = String(id ?? '').trim()
+  const action = input.action
+  const punish = input.punish
+  const banDays = Number(input.banDays ?? 0)
+  const deductPoints = Number(input.deductPoints ?? 0)
+  const note = String(input.note ?? '').trim()
+
+  const approved = action === 'approve'
+  const invalid = action === 'invalid'
+  const status = invalid ? 'invalid' : approved ? 'processed' : 'rejected'
+
+  const payload: Record<string, any> = {
+    action,
+    decision: action,
+    approved,
+    pass: approved,
+    invalid,
+    status,
+    state: status,
+    processStatus: status,
+    process_status: status,
+    processResult: action,
+    process_result: action,
+    punish: punish || undefined,
+    punishment: punish || undefined,
+    ban: punish === 'ban' ? true : undefined,
+    banDays: punish === 'ban' && Number.isFinite(banDays) && banDays > 0 ? banDays : undefined,
+    ban_days: punish === 'ban' && Number.isFinite(banDays) && banDays > 0 ? banDays : undefined,
+    deductPoints: punish === 'deduct' && Number.isFinite(deductPoints) && deductPoints > 0 ? deductPoints : undefined,
+    deduct_points: punish === 'deduct' && Number.isFinite(deductPoints) && deductPoints > 0 ? deductPoints : undefined,
+    note: note || undefined,
+    remark: note || undefined,
+    comment: note || undefined,
+    processNote: note || undefined,
+    process_note: note || undefined,
+  }
+  Object.keys(payload).forEach((k) => {
+    const v = payload[k]
+    if (v === undefined || v === null || v === '' || (typeof v === 'number' && !Number.isFinite(v))) delete payload[k]
+  })
+
+  const response = await http.put(`/admin/reports/${encodeURIComponent(rid)}/process`, payload)
+  return { raw: response.data }
+}
+
 export type AdminComplaintStatus = 'pending' | 'approved' | 'rejected' | string
+
+export type AdminComplaintType =
+  | 'ATTITUDE_BAD'
+  | 'DAMAGED'
+  | 'TIMEOUT'
+  | 'FAKE_COMPLETION'
+  | 'OTHER'
+  | string
 
 export type AdminComplaintRow = {
   id: string
   orderId: string
   complainant: string
+  complainantRole?: 'user' | 'runner' | string
   respondent: string
-  reason: string
+  complaintType?: AdminComplaintType
+  content: string
+  evidenceUrls: string[]
   status: AdminComplaintStatus
   createdAt?: string
   processedAt?: string
   processNote?: string
+  responsibility?: string
+  refundAmount?: number
+  compensationAmount?: number
+  creditDeduct?: number
 }
 
 export type AdminComplaintListQuery = {
   page: number
   pageSize: number
+  type?: string
+  status?: string
   page_size?: number
 }
 
@@ -651,49 +971,81 @@ function normalizeAdminComplaint(raw: any): AdminComplaintRow {
 
   const complainant = String(
     r?.complainant ??
-      r?.complainantName ??
-      r?.complainant_name ??
-      r?.fromUserName ??
-      r?.from_user_name ??
-      r?.userNickname ??
-      r?.user_nickname ??
-      r?.user?.nickname ??
-      r?.user?.name ??
-      r?.fromUser?.nickname ??
-      r?.fromUser?.name ??
-      r?.reporter?.nickname ??
-      r?.reporter?.name ??
-      '',
+    r?.complainantName ??
+    r?.complainant_name ??
+    r?.fromUserName ??
+    r?.from_user_name ??
+    r?.userNickname ??
+    r?.user_nickname ??
+    r?.user?.nickname ??
+    r?.user?.name ??
+    r?.fromUser?.nickname ??
+    r?.fromUser?.name ??
+    r?.reporter?.nickname ??
+    r?.reporter?.name ??
+    '',
+  ).trim()
+
+  const complainantRole = String(
+    r?.complainantRole ??
+    r?.complainant_role ??
+    r?.fromRole ??
+    r?.from_role ??
+    r?.role ??
+    r?.userRole ??
+    '',
   ).trim()
 
   const respondent = String(
     r?.respondent ??
-      r?.respondentName ??
-      r?.respondent_name ??
-      r?.toUserName ??
-      r?.to_user_name ??
-      r?.targetNickname ??
-      r?.target_nickname ??
-      r?.target?.nickname ??
-      r?.target?.name ??
-      r?.toUser?.nickname ??
-      r?.toUser?.name ??
-      r?.accused?.nickname ??
-      r?.accused?.name ??
-      '',
+    r?.respondentName ??
+    r?.respondent_name ??
+    r?.toUserName ??
+    r?.to_user_name ??
+    r?.targetNickname ??
+    r?.target_nickname ??
+    r?.target?.nickname ??
+    r?.target?.name ??
+    r?.toUser?.nickname ??
+    r?.toUser?.name ??
+    r?.accused?.nickname ??
+    r?.accused?.name ??
+    '',
   ).trim()
 
-  const reason = String(
-    r?.reason ??
-      r?.complaintReason ??
-      r?.complaint_reason ??
-      r?.content ??
-      r?.description ??
-      r?.desc ??
-      r?.remark ??
-      r?.message ??
-      '',
+  const complaintType = String(
+    r?.complaintType ??
+    r?.complaint_type ??
+    r?.type ??
+    r?.category ??
+    r?.reasonType ??
+    r?.reason_type ??
+    '',
   ).trim()
+
+  const content = String(
+    r?.content ??
+    r?.reason ??
+    r?.complaintReason ??
+    r?.complaint_reason ??
+    r?.description ??
+    r?.desc ??
+    r?.remark ??
+    r?.message ??
+    '',
+  ).trim()
+
+  const evidenceRaw = r?.evidenceUrls ?? r?.evidence_urls ?? r?.evidence ?? r?.images ?? r?.imageUrls ?? r?.image_urls ?? r?.photos
+  const evidenceUrls = Array.isArray(evidenceRaw)
+    ? evidenceRaw
+      .map((it) => String(it?.url ?? it?.src ?? it?.path ?? it).trim())
+      .filter((x) => x)
+    : typeof evidenceRaw === 'string'
+      ? evidenceRaw
+        .split(/[,\n\r]/g)
+        .map((x) => x.trim())
+        .filter((x) => x)
+      : []
 
   const status = String(r?.status ?? r?.state ?? r?.processStatus ?? r?.process_status ?? r?.result ?? '').trim() || 'pending'
 
@@ -721,25 +1073,48 @@ function normalizeAdminComplaint(raw: any): AdminComplaintRow {
 
   const processNote = String(
     r?.processNote ??
-      r?.process_note ??
-      r?.note ??
-      r?.remark ??
-      r?.comment ??
-      r?.resultNote ??
-      r?.result_note ??
-      '',
+    r?.process_note ??
+    r?.note ??
+    r?.remark ??
+    r?.comment ??
+    r?.resultNote ??
+    r?.result_note ??
+    '',
   ).trim()
+
+  const responsibility = String(
+    r?.responsibility ??
+    r?.responsibleParty ??
+    r?.responsible_party ??
+    r?.liableParty ??
+    r?.liable_party ??
+    '',
+  ).trim()
+
+  const refundAmount = normalizeNumber(r?.refundAmount ?? r?.refund_amount ?? r?.refund ?? 0, 0)
+  const compensationAmount = normalizeNumber(
+    r?.compensationAmount ?? r?.compensation_amount ?? r?.compensation ?? r?.compensate ?? 0,
+    0,
+  )
+  const creditDeduct = normalizeNumber(r?.creditDeduct ?? r?.credit_deduct ?? r?.deductCredit ?? r?.deduct_credit ?? 0, 0)
 
   return {
     id,
     orderId: orderId || '-',
     complainant: complainant || '-',
+    complainantRole: complainantRole || undefined,
     respondent: respondent || '-',
-    reason: reason || '-',
+    complaintType: complaintType || undefined,
+    content: content || '-',
+    evidenceUrls,
     status,
     createdAt,
     processedAt,
     processNote: processNote || undefined,
+    responsibility: responsibility || undefined,
+    refundAmount: refundAmount > 0 ? refundAmount : undefined,
+    compensationAmount: compensationAmount > 0 ? compensationAmount : undefined,
+    creditDeduct: creditDeduct > 0 ? creditDeduct : undefined,
   }
 }
 
@@ -757,6 +1132,10 @@ export async function listAdminComplaints(query: AdminComplaintListQuery): Promi
     page_size: query.page_size ?? query.pageSize,
     limit: query.pageSize,
     per_page: query.pageSize,
+    type: query.type,
+    category: query.type,
+    status: query.status,
+    state: query.status,
   }
   Object.keys(params).forEach((k) => {
     const v = params[k]
@@ -769,20 +1148,49 @@ export async function listAdminComplaints(query: AdminComplaintListQuery): Promi
 
 export async function processAdminComplaint(
   id: string,
-  input: { approved: boolean; note: string },
+  input: {
+    decision: 'resolve' | 'reject' | 'approve'
+    responsibility?: 'complainant' | 'respondent' | 'both' | 'none' | string
+    refundAmount?: number
+    compensationAmount?: number
+    creditDeduct?: number
+    note: string
+    notify?: boolean
+  },
 ): Promise<{ raw: any }> {
-  const approved = Boolean(input.approved)
+  const decision = input.decision
+  const approved = decision === 'approve' || decision === 'resolve'
   const note = String(input.note ?? '').trim()
+  const responsibility = String(input.responsibility ?? '').trim()
+  const refundAmount = Number(input.refundAmount ?? 0)
+  const compensationAmount = Number(input.compensationAmount ?? 0)
+  const creditDeduct = Number(input.creditDeduct ?? 0)
+  const notify = Boolean(input.notify ?? true)
+
+  const status = decision === 'reject' ? 'rejected' : 'approved'
   const payload: Record<string, any> = {
     approved,
     pass: approved,
-    action: approved ? 'approve' : 'reject',
-    decision: approved ? 'approve' : 'reject',
-    result: approved ? 'approved' : 'rejected',
-    status: approved ? 'approved' : 'rejected',
-    processResult: approved ? 'approved' : 'rejected',
-    processStatus: approved ? 'approved' : 'rejected',
+    action: decision,
+    decision,
+    result: status,
+    status,
+    state: status,
+    processResult: status,
+    processStatus: status,
     processed: true,
+    responsibility: responsibility || undefined,
+    responsibleParty: responsibility || undefined,
+    responsible_party: responsibility || undefined,
+    refundAmount: Number.isFinite(refundAmount) && refundAmount > 0 ? refundAmount : undefined,
+    refund_amount: Number.isFinite(refundAmount) && refundAmount > 0 ? refundAmount : undefined,
+    compensationAmount: Number.isFinite(compensationAmount) && compensationAmount > 0 ? compensationAmount : undefined,
+    compensation_amount: Number.isFinite(compensationAmount) && compensationAmount > 0 ? compensationAmount : undefined,
+    creditDeduct: Number.isFinite(creditDeduct) && creditDeduct > 0 ? creditDeduct : undefined,
+    credit_deduct: Number.isFinite(creditDeduct) && creditDeduct > 0 ? creditDeduct : undefined,
+    notify,
+    notifyBoth: notify,
+    notify_both: notify,
     note: note || undefined,
     remark: note || undefined,
     comment: note || undefined,
@@ -808,20 +1216,8 @@ export async function getAdminConfig(): Promise<AdminConfigResponse> {
 
 export async function updateAdminConfig(key: string, value: any): Promise<{ raw: any }> {
   const k = encodeURIComponent(String(key))
-  const payload: Record<string, any> = {
-    key,
-    name: key,
-    configKey: key,
-    value,
-    val: value,
-    configValue: value,
-    data: value,
-  }
-  Object.keys(payload).forEach((p) => {
-    const v = payload[p]
-    if (v === undefined || v === null || v === '') delete payload[p]
-  })
-  const response = await http.put(`/admin/config/${k}`, payload)
+  // 将 value 转为字符串
+  const response = await http.put(`/admin/config/${k}`, { value: String(value) })
   return { raw: response.data }
 }
 
@@ -871,12 +1267,9 @@ export async function addSensitiveWord(word: string): Promise<{ raw: any }> {
   const response = await http.post('/admin/sensitive-words', payload)
   return { raw: response.data }
 }
-
 export async function deleteSensitiveWord(word: string): Promise<{ raw: any }> {
   const w = String(word ?? '').trim()
-  const response = await http.delete('/admin/sensitive-words', {
-    params: { word: w },
-    data: { word: w, value: w, text: w, name: w },
-  })
+  // 路径参数：把敏感词本身作为 id 传给后端
+  const response = await http.delete(`/admin/sensitive-words/${encodeURIComponent(w)}`)
   return { raw: response.data }
 }
