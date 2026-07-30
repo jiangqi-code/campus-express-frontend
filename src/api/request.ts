@@ -29,7 +29,7 @@ function toBearer(token: string) {
 http.interceptors.request.use((config) => {
   const url = String(config.url || '')
   const skipAuth =
-    /\/auth\/(login|register)\b/.test(url) || /\/health\b/.test(url) || /\/public\//.test(url)
+    /\/auth\/(login|register|send-code|verify-code)\b/.test(url) || /\/health\b/.test(url) || /\/public\//.test(url)
   if (skipAuth) return config
 
   const bearer = toBearer(readToken())
@@ -39,6 +39,26 @@ http.interceptors.request.use((config) => {
   }
   return config
 })
+
+let redirectingToLogin = false
+
+http.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401 && !redirectingToLogin) {
+      const pathname = window.location.pathname
+      if (pathname !== '/login' && pathname !== '/register') {
+        redirectingToLogin = true
+        ;['ce_token', 'ce_role', 'ce_display_name', 'ce_user_id', 'ce_user_status'].forEach((key) =>
+          localStorage.removeItem(key),
+        )
+        const redirect = `${pathname}${window.location.search}${window.location.hash}`
+        window.location.replace(`/login?redirect=${encodeURIComponent(redirect)}`)
+      }
+    }
+    return Promise.reject(error)
+  },
+)
 
 export async function sleep(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms))

@@ -51,6 +51,34 @@ export const useMessageStore = defineStore('messages', () => {
     }
   }
 
+  async function refreshUnread(): Promise<number> {
+    if (!localStorage.getItem('ce_token')) return 0
+    const response = await http.get<FetchMessagesResponse>('/messages/', { params: { page: 1, pageSize: 1 } })
+    _unreadCount.value = Number(response.data.unreadCount ?? 0)
+    _total.value = Number(response.data.total ?? _total.value)
+    return _unreadCount.value
+  }
+
+  function receiveMessage(payload: Partial<MessageItem>) {
+    const item: MessageItem = {
+      id: Number(payload.id ?? Date.now()),
+      title: String(payload.title ?? '新消息'),
+      content: String(payload.content ?? ''),
+      type: String(payload.type ?? 'other'),
+      is_read: false,
+      created_at: String(payload.created_at ?? new Date().toISOString()),
+      sender_name: payload.sender_name ?? null,
+      sender_avatar: payload.sender_avatar ?? null,
+      conversation_id: payload.conversation_id ?? null,
+      related_id: payload.related_id == null ? null : Number(payload.related_id),
+    }
+    const index = messages.value.findIndex((message) => message.id === item.id)
+    if (index >= 0) messages.value[index] = { ...messages.value[index], ...item }
+    else messages.value.unshift(item)
+    _unreadCount.value += index >= 0 && !messages.value[index]?.is_read ? 0 : 1
+    _total.value += index >= 0 ? 0 : 1
+  }
+
   async function markRead(id: number): Promise<void> {
     // ✅ 把 /api/messages/${id}/read 改成 /messages/${id}/read
     await http.put(`/messages/${id}/read`)
@@ -97,6 +125,8 @@ export const useMessageStore = defineStore('messages', () => {
     total,
     loading,
     fetchMessages,
+    refreshUnread,
+    receiveMessage,
     markRead,
     readAll,
     markAllRead,

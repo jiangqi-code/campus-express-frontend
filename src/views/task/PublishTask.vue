@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
-import type { UploadFile, UploadFiles, UploadUserFile } from 'element-plus'
+import type { UploadFile, UploadFiles, UploadInstance, UploadUserFile } from 'element-plus'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRouter } from 'vue-router'
 
 import { baseURL, http } from '@/api/request'
 import { useAuthStore } from '@/stores/auth'
@@ -35,6 +35,8 @@ const fileList = ref<UploadUserFile[]>([])
 const imagesList = ref<string[]>([])
 const previewVisible = ref(false)
 const previewUrl = ref('')
+const uploadRef = ref<UploadInstance>()
+const allowLeave = ref(false)
 
 const amapContainerRef = ref<HTMLDivElement | null>(null)
 const selecting = ref<null | 'pickup' | 'delivery'>(null)
@@ -74,6 +76,9 @@ const uploadHeaders = computed<Record<string, string>>(() => {
   const token = localStorage.getItem('ce_token')
   return token ? { Authorization: `Bearer ${token}` } : ({} as Record<string, string>)
 })
+const hasUnsavedChanges = computed(() => Boolean(
+  form.pickup_address || form.delivery_address || form.type || form.urgency || Number(form.tip) > 0 || form.remark.trim() || fileList.value.length,
+))
 
 function getErrorMessage(err: any) {
   return (
@@ -520,6 +525,17 @@ function onUploadSuccess(response: any, uploadFile: UploadFile, uploadFiles: Upl
   }
 }
 
+function onUploadError(error: Error, uploadFile: UploadFile) {
+  uploadFile.status = 'fail'
+  ElMessage.error(error?.message || '图片上传失败，可点击重试')
+}
+
+function retryUpload(uploadFile: UploadFile) {
+  if (!uploadFile.raw || uploadFile.status !== 'fail') return
+  uploadFile.status = 'ready'
+  uploadRef.value?.submit()
+}
+
 function onUploadRemove(_uploadFile: UploadFile, uploadFiles: UploadFiles) {
   fileList.value = uploadFiles as unknown as UploadUserFile[]
   syncImagesList()
@@ -603,6 +619,29 @@ async function applySelection(mode: 'pickup' | 'delivery', lng: number, lat: num
     ElMessage.success('已设置收货点')
   }
   await calculateRouteDistance()
+}
+
+async function swapLocations() {
+  const pickup = { address: form.pickup_address, lat: form.pickup_lat, lng: form.pickup_lng }
+  form.pickup_address = form.delivery_address
+  form.pickup_lat = form.delivery_lat
+  form.pickup_lng = form.delivery_lng
+  form.delivery_address = pickup.address
+  form.delivery_lat = pickup.lat
+  form.delivery_lng = pickup.lng
+  if (pickupMarker && form.pickup_lng != null && form.pickup_lat != null) pickupMarker.setPosition([form.pickup_lng, form.pickup_lat])
+  if (deliveryMarker && form.delivery_lng != null && form.delivery_lat != null) deliveryMarker.setPosition([form.delivery_lng, form.delivery_lat])
+  if (map && form.pickup_lng != null && form.pickup_lat != null && form.delivery_lng != null && form.delivery_lat != null) {
+    map.setFitView?.([pickupMarker, deliveryMarker].filter(Boolean), false, [60, 60, 60, 60])
+  }
+  await calculateRouteDistance()
+}
+
+function locationsAreSame() {
+  if (form.pickup_lat == null || form.pickup_lng == null || form.delivery_lat == null || form.delivery_lng == null) return false
+  const latDelta = Math.abs(form.pickup_lat - form.delivery_lat)
+  const lngDelta = Math.abs(form.pickup_lng - form.delivery_lng)
+  return (latDelta < 0.00005 && lngDelta < 0.00005) || form.pickup_address.trim() === form.delivery_address.trim()
 }
 
 function pickModeForSelection() {
@@ -837,6 +876,21 @@ onBeforeUnmount(() => {
   placeSearch = null
 })
 
+function beforeUnload(event: BeforeUnloadEvent) {
+  if (!allowLeave.value && hasUnsavedChanges.value) {
+    event.preventDefault()
+    event.returnValue = ''
+  }
+}
+
+onBeforeRouteLeave(() => {
+  if (allowLeave.value || !hasUnsavedChanges.value) return true
+  return window.confirm('当前任务尚未发布，确定放弃未保存内容并离开吗？')
+})
+
+onMounted(() => window.addEventListener('beforeunload', beforeUnload))
+onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
+
 async function submit() {
   if (submitting.value || uploading.value) return
   if (isFrozen.value) {
@@ -855,6 +909,10 @@ async function submit() {
   }
   if (!delivery_address || form.delivery_lng == null || form.delivery_lat == null) {
     ElMessage.warning('请先在地图上选择收货点')
+    return
+  }
+  if (locationsAreSame()) {
+    ElMessage.warning('取件点和送达点不能相同')
     return
   }
   if (!form.type) {
@@ -877,8 +935,8 @@ async function submit() {
     ElMessage.warning('请先完成距离计算')
     return
   }
-  if (!Number.isFinite(tip) || tip < 0) {
-    ElMessage.warning('请输入正确的小费')
+  if (!Number.isFinite(tip) || tip < 0 || tip > 100) {
+    ElMessage.warning('小费范围为 0-100 元')
     return
   }
   if (imagesList.value.length === 0) {
@@ -908,6 +966,7 @@ async function submit() {
   try {
     await http.post('/task/publish', payload)
     ElMessage.success('发布成功')
+    allowLeave.value = true
     router.push('/tasks')
   } catch (err: any) {
     ElMessage.error(getErrorMessage(err))
@@ -941,6 +1000,10 @@ async function submit() {
         :title="pricingErrorMessage"
       />
       <el-form label-width="90px" @submit.prevent>
+        <div class="form-section-heading">
+          <div><strong>取送位置</strong><div class="text-muted small">在地图中依次选择取件点和送达点</div></div>
+          <el-button :disabled="formDisabled || (!form.pickup_address && !form.delivery_address)" @click="swapLocations">互换取送点</el-button>
+        </div>
         <el-form-item label="取件点" required>
           <div class="w-100">
             <el-input
@@ -1011,6 +1074,7 @@ async function submit() {
           </div>
         </el-form-item>
 
+        <div class="form-section-heading"><div><strong>任务信息</strong><div class="text-muted small">设置物品类型、时效和小费</div></div></div>
         <el-form-item label="物品类型" required>
           <el-select v-model="form.type" placeholder="请选择" :disabled="formDisabled" style="width: 220px">
             <el-option label="快递" value="快递" />
@@ -1036,9 +1100,13 @@ async function submit() {
         </el-form-item>
 
         <el-form-item label="小费">
-          <el-input-number v-model="form.tip" :min="0" :precision="2" :step="1" :disabled="formDisabled" />
+          <div>
+            <el-input-number v-model="form.tip" :min="0" :max="100" :precision="2" :step="1" :disabled="formDisabled" />
+            <div class="text-muted small mt-1">可选，范围 0-100 元，将全部支付给跑腿员</div>
+          </div>
         </el-form-item>
 
+        <div class="form-section-heading"><div><strong>费用预估</strong><div class="text-muted small">费用随路线距离和时效实时更新</div></div></div>
         <el-form-item label="费用明细">
           <div class="vstack gap-2" style="width: 100%">
             <el-alert
@@ -1050,6 +1118,10 @@ async function submit() {
             />
 
             <div class="fee-summary">
+              <div class="pricing-formula">
+                基础费 ¥{{ formatMoney(breakdown.base_fee) }} + 距离费（{{ formatDistanceMeters(routeDistanceMeters) }}）
+                <template v-if="form.urgency === 1"> + 加急费 ¥{{ formatMoney(breakdown.urgent_fee) }}</template>
+              </div>
               <div class="fee-summary__row">
                 <span class="text-muted">定价模式</span>
                 <span>
@@ -1118,6 +1190,7 @@ async function submit() {
           </div>
         </el-form-item>
 
+        <div class="form-section-heading"><div><strong>补充信息</strong><div class="text-muted small">添加备注与任务相关图片</div></div></div>
         <el-form-item label="备注">
           <el-input
             v-model="form.remark"
@@ -1132,6 +1205,7 @@ async function submit() {
           <div class="vstack gap-2 w-100">
             <div class="text-muted small">最多 3 张（{{ imagesList.length }}/3）</div>
             <el-upload
+              ref="uploadRef"
               v-model:file-list="fileList"
               :action="uploadAction"
               name="images"
@@ -1142,12 +1216,18 @@ async function submit() {
               :headers="uploadHeaders"
               :disabled="submitting || isFrozen"
               :on-success="onUploadSuccess"
+              :on-error="onUploadError"
               :on-remove="onUploadRemove"
               :on-preview="onUploadPreview"
               :on-exceed="onUploadExceed"
             >
               <div>上传</div>
             </el-upload>
+            <div v-for="file in fileList.filter(item => item.status === 'fail')" :key="file.uid" class="upload-failure-row">
+              <span>{{ file.name }} 上传失败</span>
+              <el-button size="small" type="primary" plain @click="retryUpload(file as UploadFile)">重试</el-button>
+            </div>
+            <div v-if="uploading" class="text-muted small">正在上传，图片卡片中会显示实时进度…</div>
           </div>
         </el-form-item>
 
@@ -1178,6 +1258,40 @@ async function submit() {
 </template>
 
 <style scoped>
+.form-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 22px 0 18px;
+  padding: 14px 16px;
+  border-left: 4px solid var(--el-color-primary);
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+}
+
+.pricing-formula {
+  margin-bottom: 10px;
+  padding: 9px 11px;
+  border-radius: 7px;
+  background: var(--color-primary-soft);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.upload-failure-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  font-size: 13px;
+}
+
 .amap-wrapper {
   position: relative;
 }
@@ -1249,5 +1363,13 @@ async function submit() {
 .fee-summary__row--total {
   font-weight: 700;
   color: var(--el-text-color-primary);
+}
+
+@media (max-width: 575.98px) {
+  .form-section-heading { align-items: flex-start; }
+  :deep(.el-form-item) { display: block; }
+  :deep(.el-form-item__label) { width: auto !important; justify-content: flex-start; }
+  :deep(.el-form-item__content) { margin-left: 0 !important; }
+  .amap-container { height: 260px; }
 }
 </style>

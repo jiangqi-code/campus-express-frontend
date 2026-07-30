@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 
 import { http } from '@/api/request'
 import { listTasks, type TaskListItem } from '@/api/task'
@@ -13,6 +13,9 @@ const auth = useAuthStore()
 const filters = reactive({
   keyword: '',
   sort: 'time_desc' as SortOption,
+  urgency: 'all' as 'all' | 'urgent' | 'normal',
+  price: 'all' as 'all' | 'under10' | '10to20' | 'over20',
+  distance: 'all' as 'all' | 'under1' | '1to3' | 'over3',
 })
 
 const loading = ref(false)
@@ -24,7 +27,10 @@ const countdownNow = ref(Date.now())
 const autoCancelDeadlineMap = ref<Record<string, number | null>>({})
 
 let countdownTimer: number | null = null
+let searchTimer: number | null = null
+let loadMoreObserver: IntersectionObserver | null = null
 let lastExpiredRefreshAt = 0
+const loadMoreSentinel = ref<HTMLElement | null>(null)
 
 const pagination = reactive({
   page: 1,
@@ -39,8 +45,7 @@ const totalPages = computed(() => {
   return Math.max(1, Math.ceil(t / ps))
 })
 
-const canPrev = computed(() => pagination.page > 1 && !loading.value)
-const canNext = computed(() => pagination.page < totalPages.value && !loading.value)
+const hasMore = computed(() => pagination.page < totalPages.value)
 const isRunner = computed(() => auth.role === 'runner')
 const isFrozen = computed(() => Boolean(auth.isFrozen))
 
@@ -401,7 +406,22 @@ const displayRows = computed(() => {
       })
     : activeRows.slice()
 
-  const sorted = filtered.slice().sort((a, b) => {
+  const ranged = filtered.filter((task) => {
+    const remainingMs = getTaskAutoCancelRemainingMs(task) ?? Number.POSITIVE_INFINITY
+    const price = toTotalPrice(task)
+    const distanceKm = (getTaskDistance(task) ?? 0) / 1000
+    if (filters.urgency === 'urgent' && remainingMs > 10 * 60_000) return false
+    if (filters.urgency === 'normal' && remainingMs <= 10 * 60_000) return false
+    if (filters.price === 'under10' && price >= 10) return false
+    if (filters.price === '10to20' && (price < 10 || price > 20)) return false
+    if (filters.price === 'over20' && price < 20) return false
+    if (filters.distance === 'under1' && distanceKm >= 1) return false
+    if (filters.distance === '1to3' && (distanceKm < 1 || distanceKm > 3)) return false
+    if (filters.distance === 'over3' && distanceKm < 3) return false
+    return true
+  })
+
+  const sorted = ranged.slice().sort((a, b) => {
     if (filters.sort === 'time_desc' || filters.sort === 'time_asc') {
       const ta = new Date(String((a as any).created_at ?? (a as any).createdAt ?? '')).getTime()
       const tb = new Date(String((b as any).created_at ?? (b as any).createdAt ?? '')).getTime()
@@ -418,7 +438,7 @@ const displayRows = computed(() => {
   return sorted
 })
 
-async function fetchList() {
+async function fetchList(append = false) {
   if (loading.value) return
   loading.value = true
   errorMessage.value = ''
@@ -437,8 +457,13 @@ async function fetchList() {
     const hasStatusField = list.some((t) => String((t as any)?.status ?? '').trim().length > 0)
     const hasNonPending = hasStatusField && list.some((t) => !isPendingTask(t))
     const finalList = hasNonPending ? list.filter(isPendingTask) : list
-    rows.value = finalList
-    syncAutoCancelDeadlines(finalList)
+    if (append) {
+      const merged = [...rows.value, ...finalList]
+      rows.value = Array.from(new Map(merged.map((task) => [taskKeyOf(task), task])).values())
+    } else {
+      rows.value = finalList
+    }
+    syncAutoCancelDeadlines(rows.value)
     total.value = hasNonPending ? finalList.length : Number(res.total ?? finalList.length) || 0
   } catch (err: any) {
     errorMessage.value = getErrorMessage(err)
@@ -449,12 +474,23 @@ async function fetchList() {
 
 function onSearch() {
   pagination.page = 1
-  fetchList()
+  fetchList(false)
 }
+
+watch(
+  () => filters.keyword,
+  () => {
+    if (searchTimer !== null) window.clearTimeout(searchTimer)
+    searchTimer = window.setTimeout(onSearch, 500)
+  },
+)
 
 function resetFilters() {
   filters.keyword = ''
   filters.sort = 'time_desc'
+  filters.urgency = 'all'
+  filters.price = 'all'
+  filters.distance = 'all'
   pagination.page = 1
   fetchList()
 }
@@ -487,7 +523,8 @@ async function accept(id: string | number) {
     })
     ElMessage.success('抢单成功')
     if (rows.value.length === 1 && pagination.page > 1) pagination.page -= 1
-    await fetchList()
+    pagination.page = 1
+    await fetchList(false)
   } catch (err: any) {
     ElMessage.error(getErrorMessage(err))
   } finally {
@@ -495,25 +532,33 @@ async function accept(id: string | number) {
   }
 }
 
-function prevPage() {
-  if (!canPrev.value) return
-  pagination.page -= 1
-  fetchList()
+function loadMore() {
+  if (!hasMore.value || loading.value) return
+  pagination.page += 1
+  fetchList(true)
 }
 
-function nextPage() {
-  if (!canNext.value) return
-  pagination.page += 1
-  fetchList()
+function setupLoadMoreObserver() {
+  loadMoreObserver?.disconnect()
+  if (!loadMoreSentinel.value) return
+  loadMoreObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadMore()
+    },
+    { rootMargin: '240px 0px' },
+  )
+  loadMoreObserver.observe(loadMoreSentinel.value)
 }
 
 onMounted(() => {
   startCountdownTimer()
-  void Promise.allSettled([loadTimeoutConfig(), fetchList()])
+  void Promise.allSettled([loadTimeoutConfig(), fetchList(false)]).finally(() => nextTick(setupLoadMoreObserver))
 })
 
 onBeforeUnmount(() => {
   stopCountdownTimer()
+  if (searchTimer !== null) window.clearTimeout(searchTimer)
+  loadMoreObserver?.disconnect()
 })
 </script>
 
@@ -525,7 +570,7 @@ onBeforeUnmount(() => {
         <div class="text-muted">待接单任务（PENDING）</div>
       </div>
       <div class="d-flex gap-2">
-        <button class="btn btn-outline-primary" type="button" :disabled="loading" @click="fetchList">刷新</button>
+        <button class="btn btn-outline-primary" type="button" :disabled="loading" @click="fetchList(false)">刷新</button>
       </div>
     </div>
 
@@ -554,14 +599,31 @@ onBeforeUnmount(() => {
             </select>
           </div>
 
+          <div class="col-12">
+            <div class="filter-toolbar">
+              <div class="filter-block">
+                <span class="filter-label">时效</span>
+                <button v-for="option in [{ label: '全部', value: 'all' }, { label: '10分钟内', value: 'urgent' }, { label: '较宽松', value: 'normal' }]" :key="option.value" class="filter-chip" :class="{ active: filters.urgency === option.value }" type="button" @click="filters.urgency = option.value as any">{{ option.label }}</button>
+              </div>
+              <div class="filter-block">
+                <span class="filter-label">价格</span>
+                <button v-for="option in [{ label: '全部', value: 'all' }, { label: '¥10内', value: 'under10' }, { label: '¥10-20', value: '10to20' }, { label: '¥20+', value: 'over20' }]" :key="option.value" class="filter-chip" :class="{ active: filters.price === option.value }" type="button" @click="filters.price = option.value as any">{{ option.label }}</button>
+              </div>
+              <div class="filter-block">
+                <span class="filter-label">距离</span>
+                <button v-for="option in [{ label: '全部', value: 'all' }, { label: '1km内', value: 'under1' }, { label: '1-3km', value: '1to3' }, { label: '3km+', value: 'over3' }]" :key="option.value" class="filter-chip" :class="{ active: filters.distance === option.value }" type="button" @click="filters.distance = option.value as any">{{ option.label }}</button>
+              </div>
+            </div>
+          </div>
+
           <div class="col-12 d-flex gap-2">
             <button class="btn btn-outline-primary" type="button" :disabled="loading" @click="resetFilters">重置</button>
-            <button class="btn btn-primary" type="button" :disabled="loading" @click="onSearch">搜索</button>
+            <span class="text-muted small align-self-center">输入后 500ms 自动搜索</span>
           </div>
         </div>
 
         <div class="d-flex flex-wrap justify-content-between align-items-center mt-3 gap-2">
-          <div class="text-muted small">共 {{ total }} 条 · 第 {{ pagination.page }} / {{ totalPages }} 页</div>
+          <div class="text-muted small">共 {{ total }} 条 · 已加载 {{ rows.length }} 条</div>
           <div v-if="loading" class="text-muted small">加载中…</div>
         </div>
 
@@ -572,29 +634,33 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-else class="mt-3 vstack gap-2">
-          <div v-if="displayRows.length === 0" class="text-muted">暂无任务</div>
+          <div v-if="displayRows.length === 0" class="task-empty">
+            <svg class="empty-illustration" viewBox="0 0 240 180" aria-hidden="true"><rect x="34" y="34" width="172" height="112" rx="28" fill="#eef3ff"/><path d="m78 78 42-22 42 22-42 22-42-22Z" fill="#fff" stroke="#3b82f6" stroke-width="5"/><path d="M78 78v45l42 22 42-22V78m-42 22v45" fill="#fff" stroke="#3b82f6" stroke-width="5" stroke-linejoin="round"/><circle cx="187" cy="48" r="11" fill="#f59e0b"/></svg>
+            <div class="fw-semibold">暂时没有匹配的任务</div>
+            <div class="text-muted small">调整筛选条件，或发布一个新的跑腿需求</div>
+            <div class="d-flex gap-2 mt-2">
+              <button class="btn btn-outline-primary" type="button" @click="resetFilters">重置筛选</button>
+              <RouterLink class="btn btn-primary" to="/task/publish">发布任务</RouterLink>
+            </div>
+          </div>
 
-          <div v-for="t in displayRows" :key="taskKeyOf(t)" class="card border-0 shadow-sm">
+          <div v-for="t in displayRows" :key="taskKeyOf(t)" class="task-card card shadow-sm">
             <div class="card-body">
               <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
-                <div class="vstack gap-1">
-                  <div class="fw-semibold">
-                    <span class="text-muted">取件：</span>
-                    <span>{{ (t as any).pickup_address || (t as any).pickupAddress || '—' }}</span>
+                <div class="task-route vstack gap-2">
+                  <div class="route-line-item"><span class="route-dot pickup"/><span class="route-label">取</span><strong>{{ (t as any).pickup_address || (t as any).pickupAddress || '—' }}</strong></div>
+                  <div class="route-line-item"><span class="route-dot delivery"/><span class="route-label">送</span><strong>{{ (t as any).delivery_address || (t as any).deliveryAddress || '—' }}</strong></div>
+                  <div v-if="(t as any).remark" class="task-remark text-muted small">{{ (t as any).remark }}</div>
+                  <div class="task-meta text-muted small">
+                    <span>{{ formatTime((t as any).created_at || (t as any).createdAt) }}</span>
+                    <span>自动取消 {{ formatAutoCancelCountdown(t) }}</span>
+                    <span>{{ formatDistanceMeters(getTaskDistance(t)) }}</span>
+                    <span>预计 {{ formatEtaMinutes(getTaskEtaMinutes(t)) }}</span>
                   </div>
-                  <div class="fw-semibold">
-                    <span class="text-muted">送达：</span>
-                    <span>{{ (t as any).delivery_address || (t as any).deliveryAddress || '—' }}</span>
-                  </div>
-                  <div v-if="(t as any).remark" class="text-muted small">备注：{{ (t as any).remark }}</div>
-                  <div class="text-muted small">发布时间：{{ formatTime((t as any).created_at || (t as any).createdAt) }}</div>
-                  <div class="text-warning small">自动取消：{{ formatAutoCancelCountdown(t) }}</div>
                 </div>
 
                 <div class="text-end">
-                  <div class="fw-semibold fs-5">¥{{ formatMoney(toTotalPrice(t)) }}</div>
-                  <div class="text-muted small">距离：{{ formatDistanceMeters(getTaskDistance(t)) }}</div>
-                  <div class="text-muted small">预计送达：{{ formatEtaMinutes(getTaskEtaMinutes(t)) }}</div>
+                  <div class="task-price">¥{{ formatMoney(toTotalPrice(t)) }}</div>
                   <button
                     v-if="isRunner"
                     class="btn btn-primary btn-sm mt-2"
@@ -614,12 +680,48 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="d-flex justify-content-between mt-2">
-            <button class="btn btn-outline-secondary" type="button" :disabled="!canPrev" @click="prevPage">上一页</button>
-            <button class="btn btn-outline-secondary" type="button" :disabled="!canNext" @click="nextPage">下一页</button>
+          <div ref="loadMoreSentinel" class="load-more-state">
+            <span v-if="loading">正在加载更多…</span>
+            <span v-else-if="hasMore">继续下滑加载更多</span>
+            <span v-else-if="rows.length > 0">已加载全部 {{ rows.length }} 条任务</span>
           </div>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.filter-toolbar { display: grid; gap: 10px; padding: 14px; border-radius: 12px; background: var(--color-fill); }
+.filter-block { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.filter-label { width: 44px; color: var(--color-text-muted); font-size: 0.8rem; }
+.filter-chip {
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  padding: 5px 11px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+}
+.filter-chip.active { border-color: #bfdbfe; background: var(--color-primary-soft); color: var(--color-primary); font-weight: 600; }
+.task-card { border-color: #eef0f3; transition: transform var(--transition-fast), box-shadow var(--transition-fast); }
+.task-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-md) !important; }
+.task-route { min-width: min(540px, 100%); }
+.route-line-item { display: grid; grid-template-columns: 10px 24px minmax(0, 1fr); align-items: center; gap: 8px; }
+.route-dot { width: 9px; height: 9px; border-radius: 50%; }
+.route-dot.pickup { background: var(--color-success); }
+.route-dot.delivery { background: var(--color-danger); }
+.route-label { color: var(--color-text-muted); font-size: 0.75rem; }
+.task-remark { border-left: 3px solid #bfdbfe; border-radius: 4px; padding: 7px 10px; background: #f8fafc; }
+.task-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.task-meta span:not(:last-child)::after { content: '·'; margin-left: 16px; color: var(--color-border-strong); }
+.task-price { color: var(--color-danger); font-size: 1.45rem; font-weight: 750; white-space: nowrap; }
+.task-empty { display: flex; min-height: 320px; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.empty-illustration { width: 220px; max-width: 80%; height: auto; }
+.load-more-state { min-height: 48px; padding: 14px; color: var(--color-text-muted); text-align: center; }
+@media (max-width: 575.98px) {
+  .filter-label { width: 100%; }
+  .task-route { min-width: 100%; }
+  .task-meta span::after { display: none; }
+}
+</style>

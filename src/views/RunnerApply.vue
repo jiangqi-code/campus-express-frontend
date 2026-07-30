@@ -220,7 +220,7 @@ async function onPickFile(e: Event) {
   try {
     const url = await uploadTaskImage(file)
     form.cardImageUrl = url
-    ElMessage.success('校园卡照片已上传')
+    ElMessage.success('证件照片已上传')
   } catch (err: any) {
     form.cardImageUrl = ''
     ElMessage.error(getErrorMessage(err))
@@ -275,7 +275,7 @@ async function onSubmit() {
     return
   }
   if (!form.cardImageUrl) {
-    ElMessage.warning('请先上传校园卡照片')
+    ElMessage.warning('请先上传学生证或身份证照片')
     return
   }
 
@@ -431,7 +431,7 @@ onBeforeUnmount(() => {
               </div>
 
               <div>
-                <label class="form-label">校园卡照片 <span class="text-danger">*</span></label>
+                <label class="form-label">证件照片 <span class="text-danger">*</span></label>
                 <div class="d-flex flex-wrap align-items-center gap-2">
                   <input
                     ref="fileInputRef"
@@ -446,7 +446,7 @@ onBeforeUnmount(() => {
                     上传图片
                   </button>
                   <span v-if="form.cardImageUrl" class="text-muted small">已上传</span>
-                  <span v-else class="text-muted small">请选择清晰的校园卡正面照片</span>
+                  <span v-else class="text-muted small">请上传清晰的学生证或身份证照片，仅用于身份审核</span>
                 </div>
 
                 <div v-if="localPreviewUrl || form.cardImageUrl" class="mt-3">

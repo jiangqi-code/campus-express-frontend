@@ -16,7 +16,6 @@ import {
   type OrderTrack,
 } from '@/api/order'
 import { baseURL, http } from '@/api/request'
-import ChatSimulator from '@/components/ChatSimulator.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useWebsocketStore } from '@/stores/websocket'
 
@@ -47,8 +46,6 @@ const runnerPhoneLoading = ref(false)
 const runnerPhone = ref('')
 const showFullPhone = ref(false)
 
-const chatVisible = ref(false)
-const chatToUserId = ref('')
 
 const AMAP_KEY = 'f977a58a3a9cc261b072364616917be1'
 const amapLoading = ref(false)
@@ -1038,8 +1035,7 @@ function openChat() {
     ElMessage.warning('无法获取聊天对象')
     return
   }
-  chatToUserId.value = chatTargetId.value
-  chatVisible.value = true
+  router.push({ name: 'order-chat', params: { orderId: orderId.value }, query: { toUserId: chatTargetId.value } })
 }
 
 watch(
@@ -1266,7 +1262,6 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <ChatSimulator v-model="chatVisible" :order-id="orderId" :to-user-id="chatToUserId" />
   </div>
 
   <el-dialog

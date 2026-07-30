@@ -1,5 +1,7 @@
 <template>
   <div class="p-4">
+    <div v-if="!isRunner" class="alert alert-info mb-0">您还不是跑腿员，暂无收益数据</div>
+    <template v-else>
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
       <div>
         <h2 class="h4 mb-1">提现记录</h2>
@@ -91,6 +93,9 @@
             <template #prefix>¥</template>
           </el-input>
         </el-form-item>
+        <el-form-item label="到账账户" required>
+          <el-input v-model="payoutAccount" placeholder="请输入支付宝账号或银行卡号" />
+        </el-form-item>
         <el-form-item label="备注（选填）">
           <el-input
             v-model="withdrawRemark"
@@ -102,7 +107,8 @@
         <div class="text-muted small">
           <div>• 可提现余额：¥{{ formatMoney(withdrawableBalance) }}</div>
           <div>• 最低提现金额：¥1.00</div>
-          <div>• 提现后将在1-3个工作日内到账</div>
+          <div>• 手续费：¥{{ formatMoney(withdrawFee) }}（当前平台暂免）</div>
+          <div>• 预计到账：{{ estimatedArrival }}</div>
         </div>
       </el-form>
       <template #footer>
@@ -110,6 +116,7 @@
         <el-button type="primary" :loading="submitting" @click="submitWithdraw">确认提现</el-button>
       </template>
     </el-dialog>
+    </template>
   </div>
 </template>
 
@@ -118,6 +125,10 @@ import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { RefreshRight } from '@element-plus/icons-vue'
 import { http } from '@/api/request'
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
+const isRunner = computed(() => auth.role === 'runner')
 
 interface Withdrawal {
   id: number
@@ -139,6 +150,7 @@ const submitting = ref(false)
 const withdrawDialogVisible = ref(false)
 const withdrawAmount = ref('')
 const withdrawRemark = ref('')
+const payoutAccount = ref('')
 const withdrawableBalance = ref(0)
 
 const pagination = ref({
@@ -148,6 +160,8 @@ const pagination = ref({
 })
 
 const canWithdraw = computed(() => withdrawableBalance.value >= 1)
+const withdrawFee = computed(() => 0)
+const estimatedArrival = computed(() => '审核通过后1-3个工作日')
 
 function formatTime(time: string) {
   if (!time) return '-'
@@ -185,6 +199,7 @@ function getStatusText(status: string) {
 }
 
 async function fetchWithdrawals() {
+  if (!isRunner.value) return
   loading.value = true
   try {
     const res = await http.get('/withdraw/list', {
@@ -206,6 +221,7 @@ async function fetchWithdrawals() {
 
 // 修改这里：从钱包接口获取余额
 async function fetchWithdrawableBalance() {
+  if (!isRunner.value) return
   try {
     const res = await http.get('/wallet/info')
     const data = res.data
@@ -229,10 +245,15 @@ function openWithdrawDialog() {
   }
   withdrawAmount.value = ''
   withdrawRemark.value = ''
+  payoutAccount.value = ''
   withdrawDialogVisible.value = true
 }
 
 async function submitWithdraw() {
+  if (!payoutAccount.value.trim()) {
+    ElMessage.warning('请输入到账账户')
+    return
+  }
   const amount = parseFloat(withdrawAmount.value)
   if (isNaN(amount) || amount <= 0) {
     ElMessage.warning('请输入正确的提现金额')
@@ -251,7 +272,8 @@ async function submitWithdraw() {
   try {
     await http.post('/withdraw/apply', {
       amount: amount,
-      remark: withdrawRemark.value
+      payoutAccount: payoutAccount.value.trim(),
+      remark: `到账账户：${payoutAccount.value.trim()}；${withdrawRemark.value}`
     })
     ElMessage.success('提现申请已提交，请等待管理员审核')
     withdrawDialogVisible.value = false
@@ -266,8 +288,10 @@ async function submitWithdraw() {
 }
 
 onMounted(() => {
-  fetchWithdrawals()
-  fetchWithdrawableBalance()
+  if (isRunner.value) {
+    fetchWithdrawals()
+    fetchWithdrawableBalance()
+  }
 })
 </script>
 

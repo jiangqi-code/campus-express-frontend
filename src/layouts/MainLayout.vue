@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { applyUnfreezeApi } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
+import { useMessageStore } from '@/stores/messages'
 
 type Role = 'user' | 'runner' | 'admin'
 
@@ -21,6 +22,7 @@ type MenuGroup = {
 }
 
 const auth = useAuthStore()
+const messageStore = useMessageStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -91,7 +93,7 @@ const menuGroups = computed<MenuGroup[]>(() => {
       items: [
         { label: '任务大厅', to: '/tasks' },
         { label: '我的订单', to: '/orders' },
-        { label: '我的消息', to: '/messages' },
+        { label: `我的消息${messageStore.unreadCount ? ` (${messageStore.unreadCount > 99 ? '99+' : messageStore.unreadCount})` : ''}`, to: '/messages' },
       ],
     },
     {

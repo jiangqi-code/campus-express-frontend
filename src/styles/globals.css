@@ -24,6 +24,7 @@ body {
     'Liberation Sans',
     sans-serif;
   line-height: 1.5;
+  font-size: var(--font-size-sm);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -74,6 +75,14 @@ hr {
   box-shadow: var(--shadow-sm);
 }
 
+.card-body { padding: var(--space-6); }
+
+:where(h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6) {
+  color: var(--color-text);
+  font-weight: 650;
+  line-height: var(--line-height-tight);
+}
+
 .shadow-soft {
   box-shadow: var(--shadow-md);
 }
@@ -84,6 +93,9 @@ hr {
 
 .btn,
 .el-button {
+  min-height: 38px;
+  border-radius: var(--radius-button);
+  font-weight: 600;
   transition:
     transform var(--transition-fast),
     box-shadow var(--transition-fast),
@@ -92,6 +104,17 @@ hr {
     color var(--transition);
 }
 
+.btn-primary {
+  --bs-btn-bg: var(--color-primary);
+  --bs-btn-border-color: var(--color-primary);
+  --bs-btn-hover-bg: var(--color-primary-hover);
+  --bs-btn-hover-border-color: var(--color-primary-hover);
+  --bs-btn-active-bg: var(--color-primary-active);
+  --bs-btn-active-border-color: var(--color-primary-active);
+}
+
+.btn:disabled, .el-button.is-disabled { cursor: not-allowed; opacity: 0.56; }
+
 .btn:active,
 .el-button:active {
   transform: translateY(0.5px);
@@ -99,12 +122,61 @@ hr {
 
 .form-control,
 .form-select {
+  min-height: 40px;
   border-color: var(--color-border);
   border-radius: var(--radius-button);
   transition:
     box-shadow var(--transition-fast),
     border-color var(--transition-fast),
     background-color var(--transition);
+}
+
+:where(.form-control, .el-input__inner, .el-textarea__inner)::placeholder { color: var(--color-text-disabled); }
+
+.el-input__wrapper, .el-select__wrapper, .el-textarea__inner {
+  border-radius: var(--radius-button);
+  box-shadow: 0 0 0 1px var(--color-border) inset;
+  transition: box-shadow var(--transition-fast);
+}
+
+.el-input__wrapper.is-focus, .el-select__wrapper.is-focused, .el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--color-primary) inset, var(--focus-ring);
+}
+
+.badge, .el-tag { border-radius: var(--radius-pill); font-weight: 600; letter-spacing: 0.01em; }
+.badge { padding: 0.4em 0.7em; }
+
+.empty-state, .review-empty, .el-empty {
+  display: flex;
+  min-height: 180px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-6);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.placeholder, .skeleton-block {
+  overflow: hidden;
+  border-radius: var(--radius-button);
+  background-color: var(--color-fill);
+}
+
+.placeholder-glow .placeholder, .skeleton-block { animation: ce-skeleton 1.5s ease-in-out infinite; }
+
+@keyframes ce-skeleton {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 .form-control:focus,

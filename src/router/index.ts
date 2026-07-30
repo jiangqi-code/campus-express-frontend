@@ -56,7 +56,13 @@ const routes: RouteRecordRaw[] = [
         path: 'profile',
         name: 'profile',
         component: () => import('@/views/user/Profile.vue'),
-        meta: { title: '个人资料' },
+        meta: { title: '个人中心' },
+      },
+      {
+        path: 'profile/edit',
+        name: 'profile-edit',
+        component: () => import('@/views/user/ProfileEdit.vue'),
+        meta: { title: '编辑个人资料' },
       },
       {
         path: 'runner/apply',
@@ -103,6 +109,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '订单详情' },
       },
       {
+        path: 'order/:orderId/chat',
+        name: 'order-chat',
+        component: () => import('@/views/order/OrderChat.vue'),
+        meta: { title: '订单聊天' },
+      },
+      {
         path: 'messages',
         name: 'messages',
         component: () => import('@/views/message/MessageCenter.vue'),
@@ -113,13 +125,13 @@ const routes: RouteRecordRaw[] = [
         path: 'runner/earnings',
         name: 'runner-earnings',
         component: () => import('@/views/runner/Earnings.vue'),
-        meta: { title: '我的信用', roles: ['runner', 'admin'] satisfies Role[] },
+        meta: { title: '跑腿收益' },
       },
       {
         path: 'runner/withdrawals',
         name: 'runner-withdrawals',
         component: () => import('@/views/runner/Withdrawals.vue'),
-        meta: { title: '提现记录', roles: ['runner', 'admin'] },
+        meta: { title: '提现记录' },
       },
       {
         path: 'runner/statistics',
@@ -128,6 +140,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '跑腿员统计', roles: ['runner', 'admin'] satisfies Role[] },
       },
 
+      {
+        path: 'wallet',
+        name: 'wallet',
+        component: () => import('@/views/user/Wallet.vue'),
+        meta: { title: '我的钱包' },
+      },
       {
         path: 'wallet/recharge',
         name: 'wallet-recharge',

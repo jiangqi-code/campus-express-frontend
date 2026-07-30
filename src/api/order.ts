@@ -138,6 +138,7 @@ export type OrderReviewPayload = {
   tags: string[]
   content: string
   images: string[]
+  anonymous: boolean
 }
 
 export async function submitOrderReview(id: string, payload: OrderReviewPayload) {

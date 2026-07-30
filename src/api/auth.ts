@@ -22,6 +22,16 @@ export async function registerApi(payload: RegisterPayload) {
   return response.data
 }
 
+export async function sendCodeApi(phone: string) {
+  const response = await http.post('/auth/send-code', { phone })
+  return response.data as { message: string; expiresIn: number; resendAfter: number; mockCode?: string }
+}
+
+export async function verifyCodeApi(phone: string, code: string) {
+  const response = await http.post('/auth/verify-code', { phone, code })
+  return response.data as { verified: boolean }
+}
+
 export type ApplyUnfreezePayload = {
   reason?: string
   contact?: string

@@ -16,6 +16,24 @@ const form = reactive({
 })
 
 const submitting = ref(false)
+const showPassword = ref(false)
+const errors = reactive({ account: '', password: '' })
+const PHONE_RE = /^1[3-9]\d{9}$/
+const STUDENT_ID_RE = /^[A-Za-z0-9]{6,20}$/
+
+function validateField(field: 'account' | 'password') {
+  if (field === 'account') {
+    const value = form.account.trim()
+    errors.account = !value
+      ? '请输入手机号或学号'
+      : PHONE_RE.test(value) || STUDENT_ID_RE.test(value)
+        ? ''
+        : '请输入11位手机号或6-20位字母/数字学号'
+  } else {
+    errors.password = form.password ? '' : '请输入密码'
+  }
+  return !errors[field]
+}
 
 function toAppRole(role: string): 'admin' | 'runner' | 'user' {
   const normalized = role.trim().toUpperCase()
@@ -58,12 +76,8 @@ async function handleLogin() {
   if (submitting.value) return
 
 
-  const password = form.password.trim()
-
-  if (!account || !password) {
-    ElMessage.error('账号和密码不能为空')
-    return
-  }
+  const password = form.password
+  if (!validateField('account') || !validateField('password')) return
 
   submitting.value = true
 
@@ -144,7 +158,7 @@ async function handleLogin() {
 </script>
 
 <template>
-  <div>
+  <div class="auth-form">
     <h1 class="h4 mb-1">登录</h1>
     <p class="text-muted mb-4">使用账号进入校园跑腿系统</p>
 
@@ -156,24 +170,36 @@ async function handleLogin() {
           class="form-control"
           placeholder="手机号 / 学号"
           autocomplete="username"
+          :class="{ 'is-invalid': errors.account }"
+          @blur="validateField('account')"
+          @input="errors.account = ''"
         />
+        <div v-if="errors.account" class="invalid-feedback">{{ errors.account }}</div>
       </div>
       <div>
         <label class="form-label">密码</label>
-        <input
-          v-model="form.password"
-          class="form-control"
-          placeholder="请输入密码"
-          type="password"
-          autocomplete="current-password"
-        />
+        <div class="input-group has-validation">
+          <input
+            v-model="form.password"
+            class="form-control"
+            :class="{ 'is-invalid': errors.password }"
+            placeholder="请输入密码"
+            :type="showPassword ? 'text' : 'password'"
+            autocomplete="current-password"
+            @blur="validateField('password')"
+            @input="errors.password = ''"
+          />
+          <button class="btn btn-outline-secondary password-toggle" type="button" @click="showPassword = !showPassword">
+            {{ showPassword ? '隐藏' : '显示' }}
+          </button>
+          <div v-if="errors.password" class="invalid-feedback">{{ errors.password }}</div>
+        </div>
       </div>
 
       <button
         class="btn btn-primary w-100"
-        type="button"
+        type="submit"
         :disabled="submitting"
-        @click="handleLogin"
       >
         <span v-if="submitting" class="spinner-border spinner-border-sm me-2" aria-hidden="true" />
         登录
@@ -181,8 +207,17 @@ async function handleLogin() {
 
       <div class="d-flex justify-content-between align-items-center">
         <RouterLink class="link-primary" to="/register">去注册</RouterLink>
-        <span class="text-muted small">后续可接入短信/验证码</span>
+        <span class="text-muted small">安全登录校园跑腿</span>
       </div>
     </form>
   </div>
 </template>
+
+<style scoped>
+.auth-form { width: 100%; }
+.password-toggle { min-width: 68px; }
+@media (max-width: 575.98px) {
+  .auth-form h1 { font-size: 1.5rem; }
+  .auth-form .btn-primary { min-height: 46px; }
+}
+</style>

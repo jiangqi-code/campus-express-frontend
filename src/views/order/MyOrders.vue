@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
-import type { FormInstance, FormRules, UploadFile, UploadFiles, UploadUserFile } from 'element-plus'
+import type { FormInstance, FormRules, UploadFile, UploadFiles, UploadInstance, UploadUserFile } from 'element-plus'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -55,6 +55,15 @@ type OrderRow = {
 
 const publishedRows = ref<OrderRow[]>([])
 const takenRows = ref<OrderRow[]>([])
+const publishedPage = ref(1)
+const publishedPageSize = 10
+const publishedHasMore = ref(true)
+const publishedLoadingMore = ref(false)
+const urgeNow = ref(Date.now())
+const URGE_COOLDOWN_MS = 5 * 60 * 1000
+const URGE_STORAGE_KEY = 'ce_published_order_urge_cooldowns'
+const urgeTimestamps = ref<Record<string, number>>({})
+let urgeTimer: ReturnType<typeof setInterval> | undefined
 
 const busyAction = ref<Record<string, string | undefined>>({})
 const locallyConfirmed = ref<Record<string, boolean | undefined>>({})
@@ -79,6 +88,7 @@ const reviewForm = reactive({
   tags: [] as string[],
   content: '',
   images: [] as string[],
+  anonymous: false,
 })
 const reviewRules: FormRules = {
   rating: [
@@ -92,6 +102,10 @@ const reviewRules: FormRules = {
       },
       trigger: 'change',
     },
+  ],
+  content: [
+    { required: true, message: '请输入文字评价', trigger: 'blur' },
+    { min: 5, message: '文字评价至少需要5个字', trigger: ['blur', 'change'] },
   ],
 }
 
@@ -110,6 +124,11 @@ const runnerPhotoOrderId = ref('')
 const runnerPhotoFileList = ref<UploadUserFile[]>([])
 const runnerPhotoUrl = ref('')
 const runnerPhotoSubmitting = ref(false)
+const runnerUploadRef = ref<UploadInstance>()
+const runnerUploadFailed = ref(false)
+type RunnerPendingAction = { orderId: string; type: 'pickup' | 'startDelivering' | 'saveDeliveryPhoto' | 'complete'; photoUrl?: string }
+const RUNNER_PENDING_KEY = 'ce:taken:pending-operation'
+const runnerPendingAction = ref<RunnerPendingAction | null>(null)
 
 const chatVisible = ref(false)
 const chatOrderId = ref('')
@@ -282,6 +301,10 @@ function openDetail(o: OrderRow) {
 function openChat(o: OrderRow) {
   const id = toOrderId(o)
   if (!id) return
+  if (activeTab.value === 'taken') {
+    router.push({ name: 'messages', query: { orderId: id } })
+    return
+  }
   chatOrderId.value = id
   chatToUserId.value = ''
   chatVisible.value = true
@@ -317,7 +340,8 @@ function openChat(o: OrderRow) {
       row?.task?.runner?.user_id ??
       '',
   ).trim()
-  chatToUserId.value = activeTab.value === 'taken' ? rowPublisherId : rowTakerId
+  void rowPublisherId
+  chatToUserId.value = rowTakerId
   if (chatToUserId.value) return
 
   void (async () => {
@@ -355,7 +379,8 @@ function openChat(o: OrderRow) {
           root?.task?.runner?.user_id ??
           '',
       ).trim()
-      chatToUserId.value = activeTab.value === 'taken' ? publisherId : takerId
+      void publisherId
+      chatToUserId.value = takerId
     } catch {
       chatToUserId.value = ''
     }
@@ -562,11 +587,6 @@ function isAwaitingUserConfirmStatus(statusRaw: unknown) {
   return normalizeStatus(statusRaw) === 'COMPLETED'
 }
 
-function isCancelledStatus(statusRaw: unknown) {
-  const s = normalizeStatus(statusRaw)
-  return s === 'CANCELLED' || s === 'CANCELED' || s === 'CANCEL'
-}
-
 function isDeliveringStatus(statusRaw: unknown) {
   const s = normalizeStatus(statusRaw)
   return s === 'DELIVERING' || s === 'DELIVER'
@@ -580,7 +600,22 @@ function isCancelableStatus(statusRaw: unknown) {
 function canUrge(o: OrderRow) {
   const id = toOrderId(o)
   if (!id) return false
-  return !isCompletedStatus(o.status) && !isCancelledStatus(o.status)
+  const status = normalizeStatus(o.status)
+  return ['ACCEPTED', 'ASSIGNED', 'PICKED_UP', 'PICKUP', 'PICKED', 'DELIVERING', 'DELIVER'].includes(status)
+}
+
+function urgeRemainSeconds(o: OrderRow) {
+  const id = toOrderId(o)
+  const lastAt = id ? urgeTimestamps.value[id] || 0 : 0
+  return Math.max(0, Math.ceil((lastAt + URGE_COOLDOWN_MS - urgeNow.value) / 1000))
+}
+
+function urgeButtonText(o: OrderRow) {
+  const seconds = urgeRemainSeconds(o)
+  if (!seconds) return '催单'
+  const minutes = String(Math.floor(seconds / 60)).padStart(2, '0')
+  const remain = String(seconds % 60).padStart(2, '0')
+  return `催单 ${minutes}:${remain}`
 }
 
 function canCancel(o: OrderRow) {
@@ -702,6 +737,7 @@ function resetReviewState() {
   reviewForm.tags = []
   reviewForm.content = ''
   reviewForm.images = []
+  reviewForm.anonymous = false
   reviewFileList.value = []
   reviewImageMap.value = {}
 }
@@ -779,10 +815,11 @@ async function submitReview() {
       tags: [...reviewForm.tags],
       content: reviewForm.content.trim(),
       images: [...reviewForm.images],
+      anonymous: reviewForm.anonymous,
     })
     locallyReviewed.value = { ...locallyReviewed.value, [orderId]: true }
     reviewDialogVisible.value = false
-    ElMessage.success('评价提交成功')
+    ElMessage.success('评价提交成功，可在“我的评价”中查看')
     await loadOrders()
   } catch (err: any) {
     ElMessage.error(getErrorMessage(err))
@@ -825,19 +862,40 @@ function buildListUrl(type: TabKey) {
   return `/order/list?type=${encodeURIComponent(type)}`
 }
 
-async function fetchPublished() {
-  loading.value = true
+async function fetchPublished(append = false) {
+  if (append) {
+    if (publishedLoadingMore.value || !publishedHasMore.value) return
+    publishedLoadingMore.value = true
+  } else {
+    loading.value = true
+    publishedPage.value = 1
+  }
   errorMessage.value = ''
   try {
     const url = buildListUrl('published')
     console.log('[MyOrders] GET', `${baseURL.replace(/\/$/, '')}${url}`)
-    const resp = await http.get(url)
+    const resp = await http.get(url, {
+      params: { page: publishedPage.value, page_size: publishedPageSize, pageSize: publishedPageSize },
+    })
     console.log('[MyOrders] published response', resp.data)
-    publishedRows.value = pickItems(resp.data, 'published')
+    const nextRows = pickItems(resp.data, 'published')
+    if (append) {
+      const seen = new Set(publishedRows.value.map((row) => String(pickOrderIdFromRow(row) || pickTaskIdFromRow(row))))
+      publishedRows.value = [
+        ...publishedRows.value,
+        ...nextRows.filter((row) => !seen.has(String(pickOrderIdFromRow(row) || pickTaskIdFromRow(row)))),
+      ]
+    } else {
+      publishedRows.value = nextRows
+    }
+    const root = resp.data?.data ?? resp.data
+    const total = Number(root?.total ?? root?.count ?? 0)
+    publishedHasMore.value = total > 0 ? publishedRows.value.length < total : nextRows.length >= publishedPageSize
   } catch (err: any) {
     errorMessage.value = getErrorMessage(err)
   } finally {
     loading.value = false
+    publishedLoadingMore.value = false
   }
 }
 
@@ -906,17 +964,20 @@ async function runAction(id: string, action: string, runner: () => Promise<any>,
 }
 
 async function onUrge(o: OrderRow) {
-  const ok = window.confirm('确认催单？')
-  if (!ok) return
   const orderId = toOrderId(o)
-  if (!orderId) return
-  await runAction(String(o.id), 'urge', () => urgeOrder(orderId), '已催单')
+  if (!orderId || urgeRemainSeconds(o) > 0) return
+  await runAction(String(o.id), 'urge', async () => {
+    await urgeOrder(orderId)
+    urgeTimestamps.value = { ...urgeTimestamps.value, [orderId]: Date.now() }
+    localStorage.setItem(URGE_STORAGE_KEY, JSON.stringify(urgeTimestamps.value))
+    urgeNow.value = Date.now()
+  }, '已催单，5 分钟后可再次催单')
 }
 
 async function onCancel(o: OrderRow) {
   const status = pickStatusFromRow(o)
   if (!isCancelableStatus(status)) return
-  const ok = window.confirm('确认取消该订单？')
+  const ok = window.confirm('取消后订单将停止流转，确定取消该订单吗？')
   if (!ok) return
   const orderId = toOrderId(o)
   const taskId = pickTaskIdFromRow(o)
@@ -1021,13 +1082,19 @@ async function onPickup(o: OrderRow) {
   runnerPhotoOrderId.value = orderId
   runnerPhotoFileList.value = []
   runnerPhotoUrl.value = ''
+  runnerUploadFailed.value = false
   runnerPhotoVisible.value = true
 }
 
 async function onDeliver(o: OrderRow) {
   const orderId = toOrderId(o)
   if (!orderId) return
-  await runAction(String(o.id), 'startDelivering', () => deliverOrder(orderId), '已开始配送')
+  const operation: RunnerPendingAction = { orderId, type: 'startDelivering' }
+  setRunnerPendingAction(operation)
+  await runAction(String(o.id), 'startDelivering', async () => {
+    await deliverOrder(orderId)
+    clearRunnerPendingAction()
+  }, '已开始配送')
 }
 
 function openDeliveryPhotoDialog(orderId: string) {
@@ -1037,6 +1104,7 @@ function openDeliveryPhotoDialog(orderId: string) {
   runnerPhotoOrderId.value = id
   runnerPhotoFileList.value = []
   runnerPhotoUrl.value = ''
+  runnerUploadFailed.value = false
   runnerPhotoVisible.value = true
 }
 
@@ -1047,10 +1115,22 @@ function onRunnerPhotoSuccess(response: any, uploadFile: UploadFile, uploadFiles
     uploadFile.url = toFullUrl(url)
     const target = uploadFiles.find((f) => f.uid === uploadFile.uid)
     if (target) target.url = toFullUrl(url)
+    runnerUploadFailed.value = false
   } catch (err: any) {
     runnerPhotoUrl.value = ''
     ElMessage.error(err?.message || '图片上传失败')
   }
+}
+
+function onRunnerPhotoError(_error: Error, uploadFile: UploadFile) {
+  runnerUploadFailed.value = true
+  ;(uploadFile as any).status = 'ready'
+  ElMessage.error('照片上传失败，请检查网络后重试')
+}
+
+function retryRunnerPhotoUpload() {
+  runnerUploadFailed.value = false
+  runnerUploadRef.value?.submit()
 }
 
 function onRunnerPhotoRemove(_uploadFile: UploadFile, uploadFiles: UploadFiles) {
@@ -1064,6 +1144,44 @@ function closeRunnerPhoto() {
   runnerPhotoUrl.value = ''
   runnerPhotoOrderId.value = ''
   runnerPhotoMode.value = 'pickup'
+  runnerUploadFailed.value = false
+}
+
+function setRunnerPendingAction(operation: RunnerPendingAction) {
+  runnerPendingAction.value = operation
+  localStorage.setItem(RUNNER_PENDING_KEY, JSON.stringify(operation))
+}
+
+function clearRunnerPendingAction() {
+  runnerPendingAction.value = null
+  localStorage.removeItem(RUNNER_PENDING_KEY)
+}
+
+async function executeRunnerPending(operation: RunnerPendingAction) {
+  if (operation.type === 'pickup') await pickupOrder(operation.orderId, operation.photoUrl || '')
+  else if (operation.type === 'startDelivering') await deliverOrder(operation.orderId)
+  else if (operation.type === 'saveDeliveryPhoto') await saveDeliveryPhoto(operation.orderId, operation.photoUrl || '')
+  else await completeOrder(operation.orderId)
+}
+
+async function retryRunnerPendingAction() {
+  const operation = runnerPendingAction.value
+  if (!operation || runnerPhotoSubmitting.value) return
+  runnerPhotoSubmitting.value = true
+  try {
+    await executeRunnerPending(operation)
+    clearRunnerPendingAction()
+    ElMessage.success('上次操作已重新提交')
+    await loadOrders()
+  } catch (err: any) {
+    ElMessage.error(getErrorMessage(err))
+  } finally {
+    runnerPhotoSubmitting.value = false
+  }
+}
+
+function handleRunnerOnline() {
+  if (runnerPendingAction.value) void retryRunnerPendingAction()
 }
 
 async function submitRunnerPhoto() {
@@ -1078,15 +1196,20 @@ async function submitRunnerPhoto() {
   runnerPhotoSubmitting.value = true
   try {
     if (runnerPhotoMode.value === 'pickup') {
-      console.log('取件图片URL:', runnerPhotoUrl.value)
-      await pickupOrder(id, runnerPhotoUrl.value)
+      const operation: RunnerPendingAction = { orderId: id, type: 'pickup', photoUrl: runnerPhotoUrl.value }
+      setRunnerPendingAction(operation)
+      await executeRunnerPending(operation)
+      clearRunnerPendingAction()
       ElMessage.success('已取件')
       closeRunnerPhoto()
       await loadOrders()
       return
     }
 
-    await saveDeliveryPhoto(id, runnerPhotoUrl.value)
+    const operation: RunnerPendingAction = { orderId: id, type: 'saveDeliveryPhoto', photoUrl: runnerPhotoUrl.value }
+    setRunnerPendingAction(operation)
+    await executeRunnerPending(operation)
+    clearRunnerPendingAction()
     ElMessage.success('已保存送达照片')
     closeRunnerPhoto()
     await loadOrders()
@@ -1115,13 +1238,37 @@ watch(
   },
 )
 
+function onPublishedScroll() {
+  if (activeTab.value !== 'published' || loading.value || publishedLoadingMore.value || !publishedHasMore.value) return
+  const distanceToBottom = document.documentElement.scrollHeight - window.innerHeight - window.scrollY
+  if (distanceToBottom > 240) return
+  publishedPage.value += 1
+  fetchPublished(true)
+}
+
 onMounted(() => {
+  try {
+    runnerPendingAction.value = JSON.parse(localStorage.getItem(RUNNER_PENDING_KEY) || 'null')
+  } catch {
+    runnerPendingAction.value = null
+  }
+  window.addEventListener('online', handleRunnerOnline)
+  try {
+    urgeTimestamps.value = JSON.parse(localStorage.getItem(URGE_STORAGE_KEY) || '{}')
+  } catch {
+    urgeTimestamps.value = {}
+  }
+  urgeTimer = setInterval(() => { urgeNow.value = Date.now() }, 1000)
+  window.addEventListener('scroll', onPublishedScroll, { passive: true })
   if (activeTab.value === 'taken' && !isRunner.value) activeTab.value = 'published'
   loadOrders()
   startDeliveringTimerIfNeeded()
 })
 
 onUnmounted(() => {
+  window.removeEventListener('online', handleRunnerOnline)
+  window.removeEventListener('scroll', onPublishedScroll)
+  if (urgeTimer) clearInterval(urgeTimer)
   clearDeliveringTimer()
 })
 
@@ -1129,6 +1276,19 @@ function runnerDisplayLabel(o: OrderRow) {
   const s = normalizeStatus(o.status)
   if ((s === 'DELIVERING' || s === 'DELIVER') && stageProgress(o) >= 1) return '已完成'
   return statusLabel(o.status)
+}
+
+function runnerStepIndex(o: OrderRow) {
+  const status = normalizeStatus(o.status)
+  if (isCompletedStatus(status)) return 3
+  if (status === 'DELIVERING' || status === 'DELIVER') return 2
+  if (status === 'PICKED_UP' || status === 'PICKUP' || status === 'PICKED') return 1
+  return 0
+}
+
+function isRunnerActionLocked(o: OrderRow) {
+  const orderId = toOrderId(o)
+  return Boolean(busyAction.value[String(o.id)]) || runnerPhotoSubmitting.value || (runnerPhotoVisible.value && runnerPhotoOrderId.value === orderId)
 }
 
 function runnerDisplayBadgeClass(o: OrderRow) {
@@ -1171,7 +1331,10 @@ async function onMarkDelivered(o: OrderRow) {
 
   busyAction.value = { ...busyAction.value, [rowId]: 'markDelivered' }
   try {
-    await completeOrder(orderId)
+    const operation: RunnerPendingAction = { orderId, type: 'complete' }
+    setRunnerPendingAction(operation)
+    await executeRunnerPending(operation)
+    clearRunnerPendingAction()
     ElMessage.success('已标记送达，等待用户确认')
     openDeliveryPhotoDialog(orderId)
     await loadOrders()
@@ -1223,6 +1386,10 @@ async function onMarkDelivered(o: OrderRow) {
         </ul>
 
         <div v-if="errorMessage" class="alert alert-danger mt-3 mb-0" role="alert">{{ errorMessage }}</div>
+        <div v-if="activeTab === 'taken' && runnerPendingAction" class="alert alert-warning mt-3 mb-0">
+          上次配送操作尚未提交成功。
+          <button class="btn btn-link btn-sm p-0 ms-2" type="button" :disabled="runnerPhotoSubmitting" @click="retryRunnerPendingAction">重新提交</button>
+        </div>
 
         <div v-if="loading && displayRows.length === 0" class="placeholder-glow mt-3">
           <div class="placeholder col-12 mb-2" />
@@ -1244,6 +1411,12 @@ async function onMarkDelivered(o: OrderRow) {
                     <div class="text-muted small">取件地址：{{ pickupAddressText(o) }}</div>
                     <div class="text-muted small">送达地址：{{ deliveryAddressText(o) }}</div>
                     <div class="mini-route-box mt-2">
+                      <div class="runner-status-steps mb-3">
+                        <div v-for="(label, index) in ['已接单', '已取件', '配送中', '已完成']" :key="label" class="runner-status-step" :class="{ active: index <= runnerStepIndex(o) }">
+                          <span class="runner-step-dot">{{ index + 1 }}</span>
+                          <span>{{ label }}</span>
+                        </div>
+                      </div>
                       <div class="d-flex align-items-center justify-content-between">
                         <div class="text-muted small">ETA：{{ etaRemainMinutes(o) }} 分钟</div>
                         <div class="text-muted small">进度：{{ Math.round(stageProgress(o) * 100) }}%</div>
@@ -1288,10 +1461,10 @@ async function onMarkDelivered(o: OrderRow) {
     v-if="canUrge(o)"
     class="btn btn-outline-secondary btn-sm"
     type="button"
-    :disabled="loading || isBusy(o.id, 'urge')"
+    :disabled="loading || isBusy(o.id, 'urge') || urgeRemainSeconds(o) > 0"
     @click="onUrge(o)"
   >
-    催单
+    {{ urgeButtonText(o) }}
   </button>
   <button
     v-if="canCancel(o)"
@@ -1313,12 +1486,12 @@ async function onMarkDelivered(o: OrderRow) {
   </button>
   <button
     v-if="canApplyRefund(o)"
-    class="btn btn-warning btn-sm"
+    class="btn btn-link btn-sm text-secondary px-1"
     type="button"
     :disabled="loading"
     @click="applyRefund(o)"
   >
-    申请退款
+    退款/售后
   </button>
   <button
     v-if="canReviewBase(o) && hasReviewed(o)"
@@ -1330,12 +1503,12 @@ async function onMarkDelivered(o: OrderRow) {
   </button>
   <button
     v-else-if="canReview(o)"
-    class="btn btn-outline-warning btn-sm"
+    class="btn btn-primary btn-sm"
     type="button"
     :disabled="loading"
     @click="openReviewDialog(o)"
   >
-    评价
+    评价本次服务
   </button>
 </template>
 
@@ -1345,13 +1518,13 @@ async function onMarkDelivered(o: OrderRow) {
                       详情
                     </button>
                     <button class="btn btn-outline-secondary btn-sm" type="button" :disabled="loading" @click="openChat(o)">
-                      消息
+                      进入聊天
                     </button>
                     <button
                       v-if="runnerNextAction(o.status) === 'pickup'"
                       class="btn btn-outline-primary btn-sm"
                       type="button"
-                      :disabled="loading || isBusy(o.id, 'pickup')"
+                      :disabled="loading || isRunnerActionLocked(o)"
                       @click="onPickup(o)"
                     >
                       取件
@@ -1360,7 +1533,7 @@ async function onMarkDelivered(o: OrderRow) {
                       v-if="runnerNextAction(o.status) === 'startDelivering'"
                       class="btn btn-outline-primary btn-sm"
                       type="button"
-                      :disabled="loading || isBusy(o.id, 'startDelivering')"
+                      :disabled="loading || isRunnerActionLocked(o)"
                       @click="onDeliver(o)"
                     >
                       开始配送
@@ -1369,7 +1542,7 @@ async function onMarkDelivered(o: OrderRow) {
                       v-if="canRunnerMarkDelivered(o)"
                       class="btn btn-primary btn-sm"
                       type="button"
-                      :disabled="loading || isBusy(o.id, 'markDelivered')"
+                      :disabled="loading || isRunnerActionLocked(o)"
                       @click="onMarkDelivered(o)"
                     >
                       标记已送达
@@ -1395,6 +1568,9 @@ async function onMarkDelivered(o: OrderRow) {
                 </div>
               </div>
             </div>
+          </div>
+          <div v-if="activeTab === 'published' && publishedRows.length" class="text-center text-muted small py-3">
+            {{ publishedLoadingMore ? '加载中...' : publishedHasMore ? '继续下滑加载更多' : '没有更多订单了' }}
           </div>
         </div>
       </div>
@@ -1443,9 +1619,11 @@ async function onMarkDelivered(o: OrderRow) {
     @closed="handleReviewDialogClosed"
   >
     <el-form ref="reviewFormRef" :model="reviewForm" :rules="reviewRules" label-position="top">
-      <el-form-item label="订单号">
-        <el-input :model-value="currentReviewOrder ? toOrderId(currentReviewOrder) : ''" disabled />
-      </el-form-item>
+      <div v-if="currentReviewOrder" class="review-order-summary mb-3">
+        <div class="d-flex justify-content-between gap-3"><span class="text-muted">正在评价</span><strong>订单 #{{ toOrderId(currentReviewOrder) }}</strong></div>
+        <div class="mt-2">{{ pickupAddressText(currentReviewOrder) }} → {{ deliveryAddressText(currentReviewOrder) }}</div>
+        <div class="d-flex justify-content-between mt-2"><span class="text-muted">订单金额</span><strong class="text-danger">¥{{ getAmount(currentReviewOrder) }}</strong></div>
+      </div>
       <el-form-item label="评分" prop="rating" required>
         <el-rate v-model="reviewForm.rating" />
       </el-form-item>
@@ -1456,15 +1634,19 @@ async function onMarkDelivered(o: OrderRow) {
           </el-checkbox-button>
         </el-checkbox-group>
       </el-form-item>
-      <el-form-item label="文字评价">
+      <el-form-item label="文字评价" prop="content" required>
         <el-input
           v-model="reviewForm.content"
           type="textarea"
           :rows="4"
           maxlength="200"
           show-word-limit
-          placeholder="请输入评价内容，最多 200 字"
+          placeholder="至少输入5个字，最多200字"
         />
+      </el-form-item>
+      <el-form-item>
+        <el-checkbox v-model="reviewForm.anonymous">匿名评价</el-checkbox>
+        <span class="text-muted small ms-2">匿名后对方不会看到你的昵称</span>
       </el-form-item>
       <el-form-item label="上传图片">
         <el-upload
@@ -1505,8 +1687,13 @@ async function onMarkDelivered(o: OrderRow) {
     :show-close="false"
   >
     <div class="vstack gap-2">
+      <div v-if="runnerPendingAction" class="alert alert-warning py-2 mb-1">
+        上次操作尚未提交成功。
+        <button class="btn btn-link btn-sm p-0 ms-2" type="button" :disabled="runnerPhotoSubmitting" @click="retryRunnerPendingAction">重新提交</button>
+      </div>
       <div class="text-muted small">请上传 1 张图片</div>
       <el-upload
+        ref="runnerUploadRef"
         v-model:file-list="runnerPhotoFileList"
         :action="uploadAction"
         name="image"
@@ -1517,9 +1704,11 @@ async function onMarkDelivered(o: OrderRow) {
         :disabled="runnerPhotoSubmitting"
         :on-success="onRunnerPhotoSuccess"
         :on-remove="onRunnerPhotoRemove"
+        :on-error="onRunnerPhotoError"
       >
         <div>上传</div>
       </el-upload>
+      <button v-if="runnerUploadFailed" class="btn btn-outline-danger btn-sm align-self-start" type="button" @click="retryRunnerPhotoUpload">重试上传</button>
     </div>
     <template #footer>
       <div class="d-flex justify-content-end gap-2">
@@ -1539,6 +1728,13 @@ async function onMarkDelivered(o: OrderRow) {
   padding: 12px;
   background: rgba(0, 0, 0, 0.02);
 }
+
+.runner-status-steps { display: flex; justify-content: space-between; gap: 8px; }
+.runner-status-step { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 4px; color: #adb5bd; font-size: 12px; text-align: center; }
+.runner-step-dot { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 50%; background: #e9ecef; color: #6c757d; font-weight: 600; }
+.runner-status-step.active { color: #0d6efd; font-weight: 600; }
+.runner-status-step.active .runner-step-dot { background: #0d6efd; color: #fff; }
+.review-order-summary { padding: 14px 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #f8fafc; }
 
 .mini-route {
   display: flex;

@@ -87,12 +87,10 @@ async function openMessage(message: any) {
   }
   
   // 根据类型跳转
-  if (message.type === 'chat' && message.conversation_id) {
-    // 跳转到聊天页面（订单详情页，里面包含聊天功能）
-    router.push({ name: 'order-track', params: { orderId: message.conversation_id } })
-  } else if (message.type === 'order' && message.related_id) {
+  const orderId = message.order_id ?? message.orderId ?? message.related_id ?? message.conversation_id
+  if ((message.type === 'chat' || message.type === 'order' || orderId) && orderId) {
     // 跳转到订单详情
-    router.push({ name: 'order-track', params: { orderId: message.related_id } })
+    router.push({ name: 'order-track', params: { orderId } })
   } else if (message.type === 'task' && message.related_id) {
     // 跳转到任务详情
     router.push({ name: 'task-detail', params: { id: message.related_id } })
