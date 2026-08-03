@@ -6,6 +6,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { applyUnfreezeApi } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 import { useMessageStore } from '@/stores/messages'
+import CouponNotification from '@/components/CouponNotification.vue'
 
 type Role = 'user' | 'runner' | 'admin'
 
@@ -67,6 +68,8 @@ const menuGroups = computed<MenuGroup[]>(() => {
         { label: '投诉处理', to: '/admin/complaints', roles: ['admin'] },
         { label: '系统配置', to: '/admin/config', roles: ['admin'] },
         { label: '优惠券管理', to: '/admin/coupons', roles: ['admin'] },
+        { label: '发放规则', to: '/admin/coupon-events', roles: ['admin'] },
+        { label: '发放记录', to: '/admin/coupon-records', roles: ['admin'] },
         { label: '敏感词管理', to: '/admin/sensitive-words', roles: ['admin'] },
       ],
     },
@@ -274,6 +277,7 @@ async function onApplyUnfreeze() {
       </div>
     </main>
 
+    <CouponNotification v-if="auth.role !== 'admin'" />
     <footer class="border-top bg-white">
       <div class="container-xxl py-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
         <div class="text-muted small">© Campus Express</div>

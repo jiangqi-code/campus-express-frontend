@@ -202,6 +202,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '优惠券管理', requiresAdmin: true, roles: ['admin'] satisfies Role[] },
       },
       {
+        path: 'admin/coupon-events',
+        name: 'admin-coupon-events',
+        component: () => import('@/views/admin/CouponEvents.vue'),
+        meta: { title: '优惠券发放规则', requiresAdmin: true, roles: ['admin'] satisfies Role[] },
+      },
+      {
+        path: 'admin/coupon-records',
+        name: 'admin-coupon-records',
+        component: () => import('@/views/admin/CouponRecords.vue'),
+        meta: { title: '优惠券发放记录', requiresAdmin: true, roles: ['admin'] satisfies Role[] },
+      },
+      {
         path: 'admin/sensitive-words',
         name: 'admin-sensitive-words',
         component: () => import('@/views/admin/AdminSensitiveWords.vue'),
