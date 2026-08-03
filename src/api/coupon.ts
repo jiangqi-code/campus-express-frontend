@@ -5,7 +5,7 @@ export type UserCoupon = { id:string; status:'UNUSED'|'USED'|'EXPIRED'; received
 export type CouponEvent = { id:string; coupon_id:string; trigger_type:'NEW_USER'|'BIRTHDAY'|'HOLIDAY'; start_date?:string; end_date?:string; is_active:boolean; coupon:Coupon }
 const data = (response:any) => response.data?.data ?? response.data
 
-export const getAvailableCoupons = async () => data(await http.get('/coupons/available')) as Coupon[]
+export const getAvailableCoupons = async (orderAmount?:number) => data(await http.get('/coupons/available',{params:{orderAmount}})) as UserCoupon[]
 export const getMyCoupons = async (params:Record<string,unknown>) => data(await http.get('/coupons/my',{ params })) as {list:UserCoupon[];total:number}
 export const receiveCoupon = async (id:string) => data(await http.post(`/coupons/receive/${encodeURIComponent(id)}`))
 export const applyCoupon = async (payload:Record<string,unknown>) => data(await http.post('/coupons/apply',payload))
@@ -17,6 +17,7 @@ export const getCouponUsage = async (id:string) => data(await http.get(`/admin/c
 export const giveCoupon = async (payload:{userId:number;couponId:string}) => data(await http.post('/admin/coupons/give',payload))
 export const checkCouponNotification = async () => data(await http.get('/coupons/check-notification')) as UserCoupon[]
 export const claimCoupon = async (userCouponId:string) => data(await http.post('/coupons/claim',{userCouponId}))
+export const checkWelcomeCoupons = async () => data(await http.post('/coupons/welcome',{})) as {issued:UserCoupon[];coupons:UserCoupon[]}
 export const getUsableCoupons = async (amount?:number) => data(await http.get('/coupons/usable',{params:{amount}})) as UserCoupon[]
 export const getCouponEvents = async (params:Record<string,unknown>) => data(await http.get('/admin/coupons/events',{params}))
 export const createCouponEvent = async (payload:Record<string,unknown>) => data(await http.post('/admin/coupons/events',payload))

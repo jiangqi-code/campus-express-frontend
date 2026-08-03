@@ -6,7 +6,7 @@ import { onBeforeRouteLeave, useRouter } from 'vue-router'
 
 import { baseURL, http } from '@/api/request'
 import { useAuthStore } from '@/stores/auth'
-import { getMyCoupons, type UserCoupon } from '@/api/coupon'
+import { getAvailableCoupons, type UserCoupon } from '@/api/coupon'
 
 type ItemType = '快递' | '餐饮' | '文件' | '药品'
 
@@ -344,7 +344,7 @@ const couponDiscount = computed(() => {
 const payableTotal = computed(() => roundMoney(totalFeeAmount.value - couponDiscount.value))
 async function loadCoupons() {
   try {
-    coupons.value = (await getMyCoupons({ page: 1, pageSize: 100, status: 'UNUSED' })).list
+    coupons.value = await getAvailableCoupons(deliveryFeeFinal.value)
     selectedCouponId.value = availableCoupons.value.slice().sort((a, b) => discountFor(b) - discountFor(a))[0]?.id || ''
   } catch { coupons.value = [] }
 }

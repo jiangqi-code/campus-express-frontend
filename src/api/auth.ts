@@ -15,6 +15,8 @@ export type RegisterPayload = {
   phone: string
   password: string
   nickname: string
+  birthDate?: string
+  idCard?: string
 }
 
 export async function registerApi(payload: RegisterPayload) {

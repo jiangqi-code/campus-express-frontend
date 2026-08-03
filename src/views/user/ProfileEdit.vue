@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { http } from '@/api/request'
 import { useAuthStore } from '@/stores/auth'
+import { parseIdCard } from '@/utils/idCard'
 
 const PHONE_PATTERN = /^1[3-9]\d{9}$/
 const auth = useAuthStore()
 const router = useRouter()
 const loading = ref(false), saving = ref(false), uploading = ref(false)
 const avatarInput = ref<HTMLInputElement | null>(null), avatarPreview = ref('')
-const form = reactive({ nickname: '', phone: '', studentId: '', avatar: '' })
+const form = reactive({ nickname: '', phone: '', studentId: '', avatar: '', birthDate:'', idCard:'' })
+const originalBirthDate=ref('')
 let previewObjectUrl = ''
 const phoneError = computed(() => form.phone.trim() && !PHONE_PATTERN.test(form.phone.trim()) ? '请输入11位中国大陆手机号' : '')
 const errorText = (e: any) => e?.response?.data?.message || e?.response?.data?.msg || e?.message || '操作失败'
@@ -25,6 +27,9 @@ async function fetchProfile() {
     form.phone = String(raw.phone ?? raw.mobile ?? '')
     form.studentId = String(raw.student_id ?? raw.studentId ?? '')
     form.avatar = String(raw.avatar ?? raw.avatar_url ?? '')
+    form.birthDate=String(raw.birth_date??raw.birthDate??'').slice(0,10)
+    form.idCard=String(raw.id_card??raw.idCard??'')
+    originalBirthDate.value=form.birthDate
   } catch (e: any) { ElMessage.error(errorText(e)) } finally { loading.value = false }
 }
 function openAvatarPicker() { if (!uploading.value) avatarInput.value?.click() }
@@ -45,9 +50,13 @@ async function saveProfile() {
   const nickname = form.nickname.trim(), phone = form.phone.trim()
   if (!nickname) { ElMessage.warning('昵称不能为空'); return }
   if (!PHONE_PATTERN.test(phone)) { ElMessage.warning('请输入正确的11位手机号'); return }
+  const parsed=form.idCard?parseIdCard(form.idCard):null
+  if(form.idCard&&!parsed?.isValid){ElMessage.warning('身份证号格式或校验位不正确');return}
+  if(parsed?.isValid)form.birthDate=parsed.birthDate
+  if(originalBirthDate.value&&form.birthDate!==originalBirthDate.value){try{await ElMessageBox.confirm('生日信息用于发放生日优惠券，确认修改吗？','确认修改生日',{type:'warning'})}catch{return}}
   saving.value = true
   try {
-    await http.put('/user/profile', { nickname, phone, student_id: form.studentId.trim() })
+    await http.put('/user/profile', { nickname, phone, student_id: form.studentId.trim(), birth_date:form.birthDate||null, id_card:form.idCard.trim()||null })
     auth.setSession({ token: auth.token, role: auth.role, displayName: nickname, userId: auth.userId })
     ElMessage.success('个人资料已保存'); await router.replace('/profile')
   } catch (e: any) { ElMessage.error(errorText(e)) } finally { saving.value = false }
@@ -67,8 +76,13 @@ onBeforeUnmount(() => { if (previewObjectUrl) URL.revokeObjectURL(previewObjectU
       <div><label class="form-label">昵称</label><input v-model="form.nickname" class="form-control" maxlength="30" placeholder="请输入昵称" /></div>
       <div><label class="form-label">手机号</label><input v-model.trim="form.phone" class="form-control" :class="{ 'is-invalid': phoneError }" maxlength="11" inputmode="numeric" placeholder="请输入11位手机号" /><div v-if="phoneError" class="invalid-feedback">{{ phoneError }}</div></div>
       <div><label class="form-label">学号</label><input v-model="form.studentId" class="form-control" maxlength="30" placeholder="请输入学号" /></div>
+      <div class="identity-grid">
+        <div><label class="form-label">出生日期</label><el-date-picker v-model="form.birthDate" type="date" value-format="YYYY-MM-DD" placeholder="补充生日信息" style="width:100%"/></div>
+        <div><label class="form-label">身份证号</label><el-input v-model="form.idCard" maxlength="18" placeholder="输入后保存时自动解析生日"/></div>
+      </div>
+      <div class="text-muted small">生日信息用于自动发放生日优惠券。</div>
       <div class="d-flex justify-content-end gap-2"><button class="btn btn-outline-secondary" type="button" @click="router.back()">取消</button><button class="btn btn-primary" type="submit" :disabled="saving || uploading">{{ saving ? '保存中…' : '保存资料' }}</button></div>
     </form></div></div>
   </div>
 </template>
-<style scoped>.profile-edit{max-width:720px;margin:0 auto}.avatar-preview{width:72px;height:72px;border-radius:50%;object-fit:cover}.avatar-placeholder{display:grid;place-items:center;color:#fff;background:var(--bs-secondary)}</style>
+<style scoped>.identity-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.profile-edit{max-width:720px;margin:0 auto}.avatar-preview{width:72px;height:72px;border-radius:50%;object-fit:cover}.avatar-placeholder{display:grid;place-items:center;color:#fff;background:var(--bs-secondary)}@media(max-width:640px){.identity-grid{grid-template-columns:1fr}}</style>

@@ -4,8 +4,12 @@ import { onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { registerApi, sendCodeApi, verifyCodeApi } from '@/api/auth'
+import { checkWelcomeCoupons } from '@/api/coupon'
+import { useAuthStore } from '@/stores/auth'
+import { parseIdCard } from '@/utils/idCard'
 
 const router = useRouter()
+const auth=useAuthStore()
 
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
@@ -21,6 +25,8 @@ const form = reactive({
   password: '',
   nickname: '',
   verification_code: '',
+  birthDate: '',
+  idCard: '',
 })
 
 const PHONE_RE = /^1[3-9]\d{9}$/
@@ -66,6 +72,7 @@ const rules: FormRules = {
     { required: true, message: '请输入验证码', trigger: 'blur' },
     { pattern: /^\d{6}$/, message: '验证码必须是6位数字', trigger: ['blur', 'change'] },
   ],
+  idCard: [{validator:(_rule,value,callback)=>{if(value&&!parseIdCard(value).isValid)return callback(new Error('身份证号格式或校验位不正确'));callback()},trigger:['blur','change']}],
 }
 
 watch(
@@ -74,6 +81,7 @@ watch(
     if (form.phone.trim() !== verifiedPhone.value) codeVerified.value = false
   },
 )
+watch(()=>form.idCard,value=>{const parsed=parseIdCard(value);if(parsed.isValid)form.birthDate=parsed.birthDate})
 
 onBeforeUnmount(() => {
   if (countdownTimer) clearInterval(countdownTimer)
@@ -129,12 +137,17 @@ async function onSubmit() {
       phone: form.phone.trim(),
       password: form.password.trim(),
       nickname: form.nickname.trim(),
+      birthDate: form.birthDate || undefined,
+      idCard: form.idCard.trim() || undefined,
     }
 
-    await registerApi(payload)
+    const result=await registerApi(payload)
+    const user=result?.user??{}
+    auth.setSession({token:String(result?.token||''),role:String(user.role||'USER').toLowerCase() as any,displayName:String(user.nickname||form.nickname),userId:String(user.id||'')})
+    await checkWelcomeCoupons()
 
     ElMessage.success('注册成功')
-    await router.replace('/login')
+    await router.replace('/tasks')
   } catch (err) {
     ElMessage.error(getErrorMessage(err))
   } finally {
@@ -176,6 +189,14 @@ async function onSubmit() {
         <el-form-item label="昵称" prop="nickname">
           <el-input v-model="form.nickname" placeholder="请输入昵称" :disabled="submitting" autocomplete="nickname" />
         </el-form-item>
+        <div class="identity-grid">
+          <el-form-item label="出生日期">
+            <el-date-picker v-model="form.birthDate" type="date" value-format="YYYY-MM-DD" placeholder="请选择出生日期" :disabled="submitting" style="width:100%"/>
+          </el-form-item>
+          <el-form-item label="身份证号（选填）" prop="idCard">
+            <el-input v-model="form.idCard" maxlength="18" placeholder="输入后自动解析生日" :disabled="submitting"/>
+          </el-form-item>
+        </div>
 
         <el-form-item label="密码" prop="password">
           <el-input
@@ -203,9 +224,11 @@ async function onSubmit() {
 .auth-form { width: 100%; }
 .code-row { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) 120px; gap: 10px; }
 .code-row .el-button { margin-left: 0; }
+.identity-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media (max-width: 575.98px) {
   .auth-form h1 { font-size: 1.5rem; }
   .code-row { grid-template-columns: minmax(0, 1fr) 112px; gap: 8px; }
+  .identity-grid{grid-template-columns:1fr}
   .auth-form :deep(.el-button--primary) { min-height: 46px; }
 }
 </style>

@@ -6,7 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const loading = ref(false)
-const profile = ref({ nickname: auth.displayName || '同学', avatar: '', role: auth.role as string, creditScore: 0 })
+const profile = ref({ nickname: auth.displayName || '同学', avatar: '', role: auth.role as string, creditScore: 0, birthDate:'' })
 const roleName = computed(() => profile.value.role === 'runner' ? '跑腿员' : profile.value.role === 'admin' ? '管理员' : '普通用户')
 const avatarText = computed(() => profile.value.nickname.slice(0, 1).toUpperCase() || 'U')
 const errorText = (e: any) => e?.response?.data?.message || e?.response?.data?.msg || e?.message || '个人资料加载失败'
@@ -23,6 +23,7 @@ async function fetchProfile() {
       avatar: String(raw.avatar ?? raw.avatar_url ?? ''),
       role: String(raw.role ?? auth.role).toLowerCase(),
       creditScore: Number(raw.credit_score ?? raw.creditScore ?? raw.credit ?? 0),
+      birthDate:String(raw.birth_date??raw.birthDate??'').slice(0,10),
     }
   } catch (e: any) { ElMessage.error(errorText(e)) } finally { loading.value = false }
 }
@@ -37,7 +38,7 @@ onMounted(fetchProfile)
       <div v-else class="profile-avatar profile-avatar--fallback">{{ avatarText }}</div>
       <div class="flex-grow-1"><div class="fs-5 fw-semibold">{{ profile.nickname }}</div><div class="d-flex gap-2 mt-2">
         <span class="badge text-bg-primary">{{ roleName }}</span><span class="badge text-bg-light text-dark">信用分 {{ profile.creditScore }}</span>
-      </div></div>
+      </div><div class="birthday mt-2">{{profile.birthDate?`生日：${profile.birthDate}`:'尚未填写生日信息'}}</div></div>
     </div></div>
     <div class="row g-3">
       <div v-for="item in [
