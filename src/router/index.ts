@@ -147,6 +147,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '我的钱包' },
       },
       {
+        path: 'coupons',
+        name: 'coupons',
+        component: () => import('@/views/user/Coupons.vue'),
+        meta: { title: '我的优惠券' },
+      },
+      {
         path: 'wallet/recharge',
         name: 'wallet-recharge',
         component: placeholderPage('钱包充值'),
@@ -188,6 +194,12 @@ const routes: RouteRecordRaw[] = [
         name: 'admin-config',
         component: () => import('@/views/admin/AdminConfig.vue'),
         meta: { title: '系统配置', requiresAdmin: true, roles: ['admin'] satisfies Role[] },
+      },
+      {
+        path: 'admin/coupons',
+        name: 'admin-coupons',
+        component: () => import('@/views/admin/AdminCoupons.vue'),
+        meta: { title: '优惠券管理', requiresAdmin: true, roles: ['admin'] satisfies Role[] },
       },
       {
         path: 'admin/sensitive-words',

@@ -1,0 +1,16 @@
+import { http } from './request'
+
+export type Coupon = { id:string; name:string; code:string; type:'DISCOUNT'|'CASH'; value:number|string; min_order_amount:number|string; max_discount:number|string; usage_limit:number; total_limit:number; received_count:number; used_count:number; start_date:string; end_date:string; status:'ACTIVE'|'EXPIRED'|'DISABLED'; can_receive?:boolean }
+export type UserCoupon = { id:string; status:'UNUSED'|'USED'|'EXPIRED'; received_at:string; used_at?:string; expired_at:string; coupon:Coupon }
+const data = (response:any) => response.data?.data ?? response.data
+
+export const getAvailableCoupons = async () => data(await http.get('/coupons/available')) as Coupon[]
+export const getMyCoupons = async (params:Record<string,unknown>) => data(await http.get('/coupons/my',{ params })) as {list:UserCoupon[];total:number}
+export const receiveCoupon = async (id:string) => data(await http.post(`/coupons/receive/${encodeURIComponent(id)}`))
+export const applyCoupon = async (payload:Record<string,unknown>) => data(await http.post('/coupons/apply',payload))
+export const getAdminCoupons = async (params:Record<string,unknown>) => data(await http.get('/admin/coupons',{params}))
+export const createCoupon = async (payload:Record<string,unknown>) => data(await http.post('/admin/coupons',payload))
+export const updateCoupon = async (id:string,payload:Record<string,unknown>) => data(await http.put(`/admin/coupons/${id}`,payload))
+export const deleteCoupon = async (id:string) => data(await http.delete(`/admin/coupons/${id}`))
+export const getCouponUsage = async (id:string) => data(await http.get(`/admin/coupons/usage/${id}`))
+export const giveCoupon = async (payload:{userId:number;couponId:string}) => data(await http.post('/admin/coupons/give',payload))

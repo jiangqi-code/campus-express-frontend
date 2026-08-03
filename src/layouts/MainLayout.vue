@@ -66,6 +66,7 @@ const menuGroups = computed<MenuGroup[]>(() => {
         { label: '举报管理', to: '/admin/reports', roles: ['admin'] },
         { label: '投诉处理', to: '/admin/complaints', roles: ['admin'] },
         { label: '系统配置', to: '/admin/config', roles: ['admin'] },
+        { label: '优惠券管理', to: '/admin/coupons', roles: ['admin'] },
         { label: '敏感词管理', to: '/admin/sensitive-words', roles: ['admin'] },
       ],
     },
@@ -106,6 +107,7 @@ const menuGroups = computed<MenuGroup[]>(() => {
       label: '钱包',
       items: [
         { label: '钱包流水', to: '/wallet/logs' },
+        { label: '我的优惠券', to: '/coupons' },
       ],
     },
     {

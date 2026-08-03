@@ -1,0 +1,18 @@
+<script setup lang="ts">
+import { onMounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
+import { getAvailableCoupons, getMyCoupons, receiveCoupon, type Coupon, type UserCoupon } from '@/api/coupon'
+
+const tab=ref('available'),loading=ref(false),available=ref<Coupon[]>([]),mine=ref<UserCoupon[]>([])
+const fmt=(v:string)=>new Date(v).toLocaleDateString('zh-CN')
+const valueText=(c:Coupon)=>c.type==='CASH'?`¥${Number(c.value).toFixed(2)}`:`${Number(c.value)}%`
+const condition=(c:Coupon)=>Number(c.min_order_amount)>0?`满 ¥${Number(c.min_order_amount).toFixed(2)} 可用`:'无门槛'
+async function load(){loading.value=true;try{if(tab.value==='available')available.value=await getAvailableCoupons();else mine.value=(await getMyCoupons({page:1,pageSize:100,status:tab.value})).list}catch(e:any){ElMessage.error(e?.response?.data?.message||'优惠券加载失败')}finally{loading.value=false}}
+async function receive(id:string){try{await receiveCoupon(id);ElMessage.success('领取成功');await load()}catch(e:any){ElMessage.error(e?.response?.data?.message||'领取失败')}}
+watch(tab,load);onMounted(load)
+</script>
+<template><section class="coupon-page" v-loading="loading"><header><div><h1>我的优惠券</h1><p>领取优惠券，并在发布任务结算时抵扣配送费。</p></div></header>
+<el-tabs v-model="tab"><el-tab-pane label="可领取" name="available"/><el-tab-pane label="可使用" name="UNUSED"/><el-tab-pane label="已使用" name="USED"/><el-tab-pane label="已过期" name="EXPIRED"/></el-tabs>
+<el-empty v-if="!(tab==='available'?available.length:mine.length)" description="暂无优惠券"/>
+<div v-else class="coupon-grid"><article v-for="item in tab==='available'?available:mine" :key="item.id" class="coupon-card" :class="{muted:tab==='USED'||tab==='EXPIRED'}"><div class="coupon-value">{{valueText(tab==='available'?(item as Coupon):(item as UserCoupon).coupon)}}</div><div class="coupon-info"><strong>{{(tab==='available'?(item as Coupon):(item as UserCoupon).coupon).name}}</strong><span>{{condition(tab==='available'?(item as Coupon):(item as UserCoupon).coupon)}}</span><small>有效期至 {{fmt((tab==='available'?(item as Coupon):(item as UserCoupon).coupon).end_date)}}</small></div><el-button v-if="tab==='available'" type="success" round :disabled="!(item as Coupon).can_receive" @click="receive(item.id)">{{(item as Coupon).can_receive?'立即领取':'已达上限'}}</el-button><span v-else class="status">{{tab==='UNUSED'?'可使用':tab==='USED'?'已使用':'已过期'}}</span></article></div></section></template>
+<style scoped>.coupon-page{max-width:1080px;margin:auto}.coupon-page header{display:flex;justify-content:space-between;align-items:end;margin-bottom:18px}.coupon-page h1{margin:0;font-size:28px}.coupon-page p{margin:8px 0 0;color:#64748b}.coupon-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:18px}.coupon-card{position:relative;display:grid;grid-template-columns:110px 1fr auto;align-items:center;gap:18px;padding:22px;background:#fff;border:1px solid #dcfce7;border-radius:18px;box-shadow:0 12px 30px rgba(21,128,61,.08);overflow:hidden}.coupon-card:before,.coupon-card:after{content:'';position:absolute;left:98px;width:20px;height:20px;border-radius:50%;background:#f7f8fa}.coupon-card:before{top:-10px}.coupon-card:after{bottom:-10px}.coupon-value{font-size:30px;font-weight:800;color:#52c41a;text-align:center}.coupon-info{display:flex;flex-direction:column;gap:6px;border-left:1px dashed #bbf7d0;padding-left:18px}.coupon-info span,.coupon-info small{color:#64748b}.coupon-card.muted{filter:grayscale(.7);opacity:.72}.status{color:#64748b;font-weight:600}@media(max-width:640px){.coupon-card{grid-template-columns:86px 1fr}.coupon-card .el-button,.status{grid-column:2}.coupon-card:before,.coupon-card:after{left:76px}}</style>

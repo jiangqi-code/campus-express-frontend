@@ -6,6 +6,7 @@ import { onBeforeRouteLeave, useRouter } from 'vue-router'
 
 import { baseURL, http } from '@/api/request'
 import { useAuthStore } from '@/stores/auth'
+import { getMyCoupons, type UserCoupon } from '@/api/coupon'
 
 type ItemType = '快递' | '餐饮' | '文件' | '药品'
 
@@ -37,6 +38,8 @@ const previewVisible = ref(false)
 const previewUrl = ref('')
 const uploadRef = ref<UploadInstance>()
 const allowLeave = ref(false)
+const coupons = ref<UserCoupon[]>([])
+const selectedCouponId = ref('')
 
 const amapContainerRef = ref<HTMLDivElement | null>(null)
 const selecting = ref<null | 'pickup' | 'delivery'>(null)
@@ -328,6 +331,23 @@ const deliveryFeeFinal = computed(() => {
 })
 
 const totalFeeAmount = computed(() => roundMoney(deliveryFeeFinal.value + tipAmount.value))
+const availableCoupons = computed(() => coupons.value.filter((item) => Number(item.coupon.min_order_amount) <= deliveryFeeFinal.value))
+const discountFor = (item: UserCoupon) => {
+  const coupon = item.coupon
+  const raw = coupon.type === 'CASH' ? Number(coupon.value) : deliveryFeeFinal.value * Number(coupon.value) / 100
+  return roundMoney(Math.min(deliveryFeeFinal.value, coupon.type === 'DISCOUNT' && Number(coupon.max_discount) > 0 ? Math.min(raw, Number(coupon.max_discount)) : raw))
+}
+const couponDiscount = computed(() => {
+  const item = availableCoupons.value.find((entry) => entry.id === selectedCouponId.value)
+  return item ? discountFor(item) : 0
+})
+const payableTotal = computed(() => roundMoney(totalFeeAmount.value - couponDiscount.value))
+async function loadCoupons() {
+  try {
+    coupons.value = (await getMyCoupons({ page: 1, pageSize: 100, status: 'UNUSED' })).list
+    selectedCouponId.value = availableCoupons.value.slice().sort((a, b) => discountFor(b) - discountFor(a))[0]?.id || ''
+  } catch { coupons.value = [] }
+}
 
 function resetAiPricing() {
   aiPricingResult.value = null
@@ -888,7 +908,7 @@ onBeforeRouteLeave(() => {
   return window.confirm('当前任务尚未发布，确定放弃未保存内容并离开吗？')
 })
 
-onMounted(() => window.addEventListener('beforeunload', beforeUnload))
+onMounted(() => { window.addEventListener('beforeunload', beforeUnload); loadCoupons() })
 onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
 
 async function submit() {
@@ -960,6 +980,7 @@ async function submit() {
     tip,
     remark,
     images_json: JSON.stringify(imagesList.value),
+    user_coupon_id: selectedCouponId.value || null,
   }
 
   submitting.value = true
@@ -1182,9 +1203,20 @@ async function submit() {
                 <span>¥ {{ formatMoney(tipAmount) }}</span>
               </div>
 
+              <div class="fee-summary__row coupon-row">
+                <span>优惠券</span>
+                <el-select v-model="selectedCouponId" clearable placeholder="不使用优惠券" style="width:220px">
+                  <el-option v-for="item in availableCoupons" :key="item.id" :value="item.id" :label="`${item.coupon.name}（省 ¥${discountFor(item).toFixed(2)}）`" />
+                </el-select>
+              </div>
+
+              <div v-if="couponDiscount > 0" class="fee-summary__row coupon-saving">
+                <span>优惠减免</span><span>- ¥ {{ formatMoney(couponDiscount) }}</span>
+              </div>
+
               <div class="fee-summary__row fee-summary__row--total">
                 <span>总计</span>
-                <span>¥ {{ formatMoney(totalFeeAmount) }}</span>
+                <span>¥ {{ formatMoney(payableTotal) }}</span>
               </div>
             </div>
           </div>
@@ -1364,6 +1396,8 @@ async function submit() {
   font-weight: 700;
   color: var(--el-text-color-primary);
 }
+.coupon-saving { color: #389e0d; }
+.coupon-row { align-items: center; }
 
 @media (max-width: 575.98px) {
   .form-section-heading { align-items: flex-start; }

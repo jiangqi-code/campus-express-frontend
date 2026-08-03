@@ -46,6 +46,7 @@ onMounted(fetchProfile)
         { to: '/wallet/logs', title: '钱包流水', desc: '查看账户资金变动记录' },
         { to: '/orders', title: '我的订单', desc: '管理发布和接取的订单' },
         { to: '/reviews', title: '我的评价', desc: '查看已提交的评价' },
+        { to: '/coupons', title: '我的优惠券', desc: '领取优惠券并查看使用状态' },
       ]" :key="item.to" class="col-12 col-md-6 col-xl-4">
         <RouterLink class="menu-card card border-0 shadow-sm h-100 text-decoration-none" :to="item.to"><div class="card-body">
           <div class="fw-semibold text-dark">{{ item.title }}</div><div class="text-muted small mt-1">{{ item.desc }}</div>
