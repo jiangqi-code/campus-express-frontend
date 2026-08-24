@@ -4,7 +4,7 @@ import { onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { registerApi, sendCodeApi, verifyCodeApi } from '@/api/auth'
-import { checkWelcomeCoupons } from '@/api/coupon'
+import { checkWelcomeCoupons, queueWelcomeCoupons, type UserCoupon } from '@/api/coupon'
 import { useAuthStore } from '@/stores/auth'
 import { parseIdCard } from '@/utils/idCard'
 
@@ -32,6 +32,7 @@ const form = reactive({
 const PHONE_RE = /^1[3-9]\d{9}$/
 const STUDENT_ID_RE = /^[A-Za-z0-9]{6,20}$/
 const PASSWORD_RE = /^(?=.*[A-Za-z])(?=.*\d).{8,32}$/
+const disableFutureDate = (date: Date) => date.getTime() > Date.now()
 
 function requiredTrim(message: string) {
   return (_rule: any, value: any, callback: any) => {
@@ -82,6 +83,10 @@ watch(
   },
 )
 watch(()=>form.idCard,value=>{const parsed=parseIdCard(value);if(parsed.isValid)form.birthDate=parsed.birthDate})
+
+function normalizeIdCard() {
+  form.idCard = form.idCard.trim().toUpperCase()
+}
 
 onBeforeUnmount(() => {
   if (countdownTimer) clearInterval(countdownTimer)
@@ -137,14 +142,21 @@ async function onSubmit() {
       phone: form.phone.trim(),
       password: form.password.trim(),
       nickname: form.nickname.trim(),
-      birthDate: form.birthDate || undefined,
-      idCard: form.idCard.trim() || undefined,
+      birth_date: form.birthDate || undefined,
+      id_card: form.idCard.trim().toUpperCase() || undefined,
     }
 
     const result=await registerApi(payload)
     const user=result?.user??{}
     auth.setSession({token:String(result?.token||''),role:String(user.role||'USER').toLowerCase() as any,displayName:String(user.nickname||form.nickname),userId:String(user.id||'')})
-    await checkWelcomeCoupons()
+    let coupons = Array.isArray(result?.welcomeCoupons) ? result.welcomeCoupons as UserCoupon[] : []
+    try {
+      const welcome = await checkWelcomeCoupons()
+      coupons = Array.isArray(welcome?.coupons) ? welcome.coupons : coupons
+    } catch {
+      // 注册已完成，新人券检查失败不应让用户误以为注册失败。
+    }
+    queueWelcomeCoupons(coupons)
 
     ElMessage.success('注册成功')
     await router.replace('/tasks')
@@ -191,10 +203,10 @@ async function onSubmit() {
         </el-form-item>
         <div class="identity-grid">
           <el-form-item label="出生日期">
-            <el-date-picker v-model="form.birthDate" type="date" value-format="YYYY-MM-DD" placeholder="请选择出生日期" :disabled="submitting" style="width:100%"/>
+            <el-date-picker v-model="form.birthDate" type="date" value-format="YYYY-MM-DD" placeholder="请选择出生日期" :disabled-date="disableFutureDate" :disabled="submitting" style="width:100%"/>
           </el-form-item>
           <el-form-item label="身份证号（选填）" prop="idCard">
-            <el-input v-model="form.idCard" maxlength="18" placeholder="输入后自动解析生日" :disabled="submitting"/>
+            <el-input v-model="form.idCard" maxlength="18" placeholder="输入后自动解析生日" :disabled="submitting" @blur="normalizeIdCard"/>
           </el-form-item>
         </div>
 

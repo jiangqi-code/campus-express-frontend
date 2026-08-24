@@ -147,9 +147,10 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '我的钱包' },
       },
       {
-        path: 'coupons',
+        path: 'coupon',
+        alias: 'coupons',
         name: 'coupons',
-        component: () => import('@/views/user/Coupons.vue'),
+        component: () => import('@/views/coupon/Index.vue'),
         meta: { title: '我的优惠券' },
       },
       {

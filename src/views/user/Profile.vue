@@ -38,7 +38,7 @@ onMounted(fetchProfile)
       <div v-else class="profile-avatar profile-avatar--fallback">{{ avatarText }}</div>
       <div class="flex-grow-1"><div class="fs-5 fw-semibold">{{ profile.nickname }}</div><div class="d-flex gap-2 mt-2">
         <span class="badge text-bg-primary">{{ roleName }}</span><span class="badge text-bg-light text-dark">信用分 {{ profile.creditScore }}</span>
-      </div><div class="birthday mt-2">{{profile.birthDate?`生日：${profile.birthDate}`:'尚未填写生日信息'}}</div></div>
+      </div><div class="birthday mt-2"><span>出生日期</span><strong v-if="profile.birthDate">{{ profile.birthDate }}</strong><RouterLink v-else to="/profile/edit">补充生日信息</RouterLink></div></div>
     </div></div>
     <div class="row g-3">
       <div v-for="item in [
@@ -47,7 +47,7 @@ onMounted(fetchProfile)
         { to: '/wallet/logs', title: '钱包流水', desc: '查看账户资金变动记录' },
         { to: '/orders', title: '我的订单', desc: '管理发布和接取的订单' },
         { to: '/reviews', title: '我的评价', desc: '查看已提交的评价' },
-        { to: '/coupons', title: '我的优惠券', desc: '领取优惠券并查看使用状态' },
+        { to: '/coupon', title: '我的优惠券', desc: '领取优惠券并查看使用状态' },
       ]" :key="item.to" class="col-12 col-md-6 col-xl-4">
         <RouterLink class="menu-card card border-0 shadow-sm h-100 text-decoration-none" :to="item.to"><div class="card-body">
           <div class="fw-semibold text-dark">{{ item.title }}</div><div class="text-muted small mt-1">{{ item.desc }}</div>
@@ -61,5 +61,5 @@ onMounted(fetchProfile)
 </template>
 
 <style scoped>
-.profile-page{max-width:960px;margin:0 auto}.profile-avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;flex:0 0 auto}.profile-avatar--fallback{display:grid;place-items:center;color:#fff;font-size:1.5rem;font-weight:700;background:var(--bs-primary)}.menu-card{transition:transform .2s ease}.menu-card:hover{transform:translateY(-2px)}
+.profile-page{max-width:960px;margin:0 auto}.profile-avatar{width:72px;height:72px;border-radius:50%;object-fit:cover;flex:0 0 auto}.profile-avatar--fallback{display:grid;place-items:center;color:#fff;font-size:1.5rem;font-weight:700;background:var(--bs-primary)}.birthday{display:flex;align-items:center;gap:10px;color:#6b7280;font-size:14px}.birthday strong{color:#263427}.birthday a{color:#389e0d;font-weight:700;text-decoration:none}.birthday a:hover{text-decoration:underline}.menu-card{transition:transform .2s ease}.menu-card:hover{transform:translateY(-2px)}
 </style>

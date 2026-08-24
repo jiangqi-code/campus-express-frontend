@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { http } from '@/api/request'
@@ -14,8 +14,18 @@ const avatarInput = ref<HTMLInputElement | null>(null), avatarPreview = ref('')
 const form = reactive({ nickname: '', phone: '', studentId: '', avatar: '', birthDate:'', idCard:'' })
 const originalBirthDate=ref('')
 let previewObjectUrl = ''
+const disableFutureDate = (date: Date) => date.getTime() > Date.now()
 const phoneError = computed(() => form.phone.trim() && !PHONE_PATTERN.test(form.phone.trim()) ? '请输入11位中国大陆手机号' : '')
 const errorText = (e: any) => e?.response?.data?.message || e?.response?.data?.msg || e?.message || '操作失败'
+
+watch(() => form.idCard, (value) => {
+  const parsed = parseIdCard(value)
+  if (parsed.isValid) form.birthDate = parsed.birthDate
+})
+
+function normalizeIdCard() {
+  form.idCard = form.idCard.trim().toUpperCase()
+}
 
 async function fetchProfile() {
   loading.value = true
@@ -77,8 +87,8 @@ onBeforeUnmount(() => { if (previewObjectUrl) URL.revokeObjectURL(previewObjectU
       <div><label class="form-label">手机号</label><input v-model.trim="form.phone" class="form-control" :class="{ 'is-invalid': phoneError }" maxlength="11" inputmode="numeric" placeholder="请输入11位手机号" /><div v-if="phoneError" class="invalid-feedback">{{ phoneError }}</div></div>
       <div><label class="form-label">学号</label><input v-model="form.studentId" class="form-control" maxlength="30" placeholder="请输入学号" /></div>
       <div class="identity-grid">
-        <div><label class="form-label">出生日期</label><el-date-picker v-model="form.birthDate" type="date" value-format="YYYY-MM-DD" placeholder="补充生日信息" style="width:100%"/></div>
-        <div><label class="form-label">身份证号</label><el-input v-model="form.idCard" maxlength="18" placeholder="输入后保存时自动解析生日"/></div>
+        <div><label class="form-label">出生日期</label><el-date-picker v-model="form.birthDate" type="date" value-format="YYYY-MM-DD" :disabled-date="disableFutureDate" placeholder="补充生日信息" style="width:100%"/></div>
+        <div><label class="form-label">身份证号</label><el-input v-model="form.idCard" maxlength="18" placeholder="输入后自动解析生日" @blur="normalizeIdCard"/></div>
       </div>
       <div class="text-muted small">生日信息用于自动发放生日优惠券。</div>
       <div class="d-flex justify-content-end gap-2"><button class="btn btn-outline-secondary" type="button" @click="router.back()">取消</button><button class="btn btn-primary" type="submit" :disabled="saving || uploading">{{ saving ? '保存中…' : '保存资料' }}</button></div>

@@ -110,7 +110,7 @@ const menuGroups = computed<MenuGroup[]>(() => {
       label: '钱包',
       items: [
         { label: '钱包流水', to: '/wallet/logs' },
-        { label: '我的优惠券', to: '/coupons' },
+        { label: '我的优惠券', to: '/coupon' },
       ],
     },
     {

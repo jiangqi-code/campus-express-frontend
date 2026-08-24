@@ -4,8 +4,9 @@ export type Coupon = { id:string; name:string; code:string; type:'DISCOUNT'|'CAS
 export type UserCoupon = { id:string; status:'UNUSED'|'USED'|'EXPIRED'; received_at:string; created_at?:string; used_at?:string; expired_at:string; claimed_at?:string|null; coupon:Coupon }
 export type CouponEvent = { id:string; coupon_id:string; trigger_type:'NEW_USER'|'BIRTHDAY'|'HOLIDAY'; start_date?:string; end_date?:string; is_active:boolean; coupon:Coupon }
 const data = (response:any) => response.data?.data ?? response.data
+const WELCOME_QUEUE_KEY = 'ce_welcome_coupon_queue'
 
-export const getAvailableCoupons = async (orderAmount?:number) => data(await http.get('/coupons/available',{params:{orderAmount}})) as UserCoupon[]
+export const getAvailableCoupons = async (amount?:number) => data(await http.get('/coupons/available',{params:{amount}})) as UserCoupon[]
 export const getMyCoupons = async (params:Record<string,unknown>) => data(await http.get('/coupons/my',{ params })) as {list:UserCoupon[];total:number}
 export const receiveCoupon = async (id:string) => data(await http.post(`/coupons/receive/${encodeURIComponent(id)}`))
 export const applyCoupon = async (payload:Record<string,unknown>) => data(await http.post('/coupons/apply',payload))
@@ -25,3 +26,20 @@ export const updateCouponEvent = async (id:string,payload:Record<string,unknown>
 export const deleteCouponEvent = async (id:string) => data(await http.delete(`/admin/coupons/events/${id}`))
 export const getCouponRecords = async (params:Record<string,unknown>) => data(await http.get('/admin/coupons/records',{params}))
 export const triggerCouponDistribution = async (date?:string) => data(await http.post('/admin/coupons/trigger',{date}))
+
+export function queueWelcomeCoupons(items: UserCoupon[]) {
+  if (!items.length) return
+  sessionStorage.setItem(WELCOME_QUEUE_KEY, JSON.stringify(items))
+}
+
+export function takeQueuedWelcomeCoupons(): UserCoupon[] {
+  const raw = sessionStorage.getItem(WELCOME_QUEUE_KEY)
+  sessionStorage.removeItem(WELCOME_QUEUE_KEY)
+  if (!raw) return []
+  try {
+    const items = JSON.parse(raw)
+    return Array.isArray(items) ? items : []
+  } catch {
+    return []
+  }
+}

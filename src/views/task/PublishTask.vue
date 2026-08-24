@@ -40,6 +40,9 @@ const uploadRef = ref<UploadInstance>()
 const allowLeave = ref(false)
 const coupons = ref<UserCoupon[]>([])
 const selectedCouponId = ref('')
+const couponLoading = ref(false)
+let couponRequestSequence = 0
+let couponReloadTimer: ReturnType<typeof setTimeout> | undefined
 
 const amapContainerRef = ref<HTMLDivElement | null>(null)
 const selecting = ref<null | 'pickup' | 'delivery'>(null)
@@ -343,11 +346,31 @@ const couponDiscount = computed(() => {
 })
 const payableTotal = computed(() => roundMoney(totalFeeAmount.value - couponDiscount.value))
 async function loadCoupons() {
+  const sequence = ++couponRequestSequence
+  couponLoading.value = true
   try {
-    coupons.value = await getAvailableCoupons(deliveryFeeFinal.value)
-    selectedCouponId.value = availableCoupons.value.slice().sort((a, b) => discountFor(b) - discountFor(a))[0]?.id || ''
-  } catch { coupons.value = [] }
+    const rows = await getAvailableCoupons(deliveryFeeFinal.value)
+    if (sequence !== couponRequestSequence) return
+    coupons.value = rows
+    if (!rows.some((item) => item.id === selectedCouponId.value)) selectedCouponId.value = ''
+  } catch {
+    if (sequence === couponRequestSequence) {
+      coupons.value = []
+      selectedCouponId.value = ''
+    }
+  } finally {
+    if (sequence === couponRequestSequence) couponLoading.value = false
+  }
 }
+
+watch(
+  () => deliveryFeeFinal.value,
+  () => {
+    if (couponReloadTimer) clearTimeout(couponReloadTimer)
+    couponReloadTimer = setTimeout(loadCoupons, 250)
+  },
+  { immediate: true },
+)
 
 function resetAiPricing() {
   aiPricingResult.value = null
@@ -908,8 +931,11 @@ onBeforeRouteLeave(() => {
   return window.confirm('当前任务尚未发布，确定放弃未保存内容并离开吗？')
 })
 
-onMounted(() => { window.addEventListener('beforeunload', beforeUnload); loadCoupons() })
-onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
+onMounted(() => window.addEventListener('beforeunload', beforeUnload))
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', beforeUnload)
+  if (couponReloadTimer) clearTimeout(couponReloadTimer)
+})
 
 async function submit() {
   if (submitting.value || uploading.value) return
@@ -1205,7 +1231,7 @@ async function submit() {
 
               <div class="fee-summary__row coupon-row">
                 <span>优惠券</span>
-                <el-select v-model="selectedCouponId" clearable placeholder="不使用优惠券" style="width:220px">
+                <el-select v-model="selectedCouponId" clearable :loading="couponLoading" placeholder="选择优惠券" no-data-text="当前金额暂无可用优惠券" style="width:220px">
                   <el-option v-for="item in availableCoupons" :key="item.id" :value="item.id" :label="`${item.coupon.name}（省 ¥${discountFor(item).toFixed(2)}）`" />
                 </el-select>
               </div>
