@@ -57,9 +57,9 @@ const distanceErrorMessage = ref('')
 const routeDistanceMeters = ref<number | null>(null)
 const routeDurationSeconds = ref<number | null>(null)
 const pricingConfig = reactive({
-  base_delivery_fee: 0,
-  distance_price_per_km: 0,
-  urgent_fee: 0,
+  base_delivery_fee: 6.52,
+  distance_price_per_km: 1.2,
+  urgent_fee: 2,
   ai_pricing_enabled: false,
   allow_user_price_adjust: false,
 })
@@ -122,6 +122,14 @@ function formatDistanceMeters(value: number | null) {
   const meters = Number(value)
   if (meters < 1000) return `${Math.round(meters)} m`
   return `${(meters / 1000).toFixed(2)} km`
+}
+
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const rad = (value: number) => (value * Math.PI) / 180
+  const dLat = rad(lat2 - lat1)
+  const dLng = rad(lng2 - lng1)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2
+  return Math.round(6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)))
 }
 
 function flattenObject(input: any, prefix = '', out: Record<string, any> = {}) {
@@ -287,6 +295,13 @@ function normalizePricingCalculateResponse(data: any): PricingCalculateResult | 
     NaN,
   )
 
+  const baseValid = Number.isFinite(base_fee) && base_fee > 0
+  const distanceValid = Number.isFinite(distance_fee) && distance_fee >= 0
+  const deliveryValid = Number.isFinite(delivery_fee) && delivery_fee > 0
+  const anyValid = baseValid || distanceValid || deliveryValid
+
+  if (!anyValid) return null
+
   const safeBreakdown: PricingBreakdown = {
     base_fee: Number.isFinite(base_fee) ? roundMoney(base_fee) : 0,
     distance_fee: Number.isFinite(distance_fee) ? roundMoney(distance_fee) : 0,
@@ -311,25 +326,36 @@ function normalizePricingCalculateResponse(data: any): PricingCalculateResult | 
 }
 
 const breakdown = computed<PricingBreakdown>(() => {
-  if (aiPricingResult.value) return aiPricingResult.value.breakdown
-  return {
+  const ruleBased: PricingBreakdown = {
     base_fee: baseFeeAmount.value,
     distance_fee: distanceFeeAmount.value,
     time_fee: 0,
     weather_fee: 0,
     urgent_fee: urgentFeeAmount.value,
   }
+  if (!aiPricingResult.value) return ruleBased
+  const ai = aiPricingResult.value.breakdown
+  return {
+    base_fee: ai.base_fee > 0 ? ai.base_fee : ruleBased.base_fee,
+    distance_fee: ai.distance_fee > 0 ? ai.distance_fee : ruleBased.distance_fee,
+    time_fee: Number.isFinite(ai.time_fee) ? ai.time_fee : 0,
+    weather_fee: Number.isFinite(ai.weather_fee) ? ai.weather_fee : 0,
+    urgent_fee: ruleBased.urgent_fee > 0 ? ruleBased.urgent_fee : (ai.urgent_fee > 0 ? ai.urgent_fee : 0),
+  }
 })
 
 const deliveryFeeAuto = computed(() => {
-  if (aiPricingResult.value) return roundMoney(aiPricingResult.value.delivery_fee)
-  return roundMoney(
+  const computedFromBreakdown = roundMoney(
     breakdown.value.base_fee +
       breakdown.value.distance_fee +
       breakdown.value.time_fee +
       breakdown.value.weather_fee +
       breakdown.value.urgent_fee,
   )
+  if (aiPricingResult.value && aiPricingResult.value.delivery_fee > 0) {
+    return roundMoney(Math.max(aiPricingResult.value.delivery_fee, computedFromBreakdown * 0.9))
+  }
+  return computedFromBreakdown
 })
 
 const canUserAdjustPrice = computed(() => Boolean(pricingConfig.allow_user_price_adjust))
@@ -499,8 +525,11 @@ async function calculateRouteDistance() {
   distanceLoading.value = true
   distanceErrorMessage.value = ''
 
+  const fallbackMeters = haversineMeters(form.pickup_lat, form.pickup_lng, form.delivery_lat, form.delivery_lng)
+  routeDistanceMeters.value = fallbackMeters
+  routeDurationSeconds.value = Math.max(60, Math.round(fallbackMeters / 4.2))
+
   try {
-    // 修改这里：去掉 /api 前缀
     const res = await http.post('/map/distance', {
       origin_lat: form.pickup_lat,
       origin_lng: form.pickup_lng,
@@ -510,20 +539,17 @@ async function calculateRouteDistance() {
     
     if (seq !== distanceCalcSeq) return
 
-    const data = res.data
+    const data = res.data?.data ?? res.data
     const distanceMeters = data?.distance_meters
     
     if (distanceMeters && Number(distanceMeters) > 0) {
       routeDistanceMeters.value = Math.round(Number(distanceMeters))
-      routeDurationSeconds.value = data?.duration_seconds || null
+      routeDurationSeconds.value = data?.duration_seconds || routeDurationSeconds.value
       distanceErrorMessage.value = ''
-    } else {
-      throw new Error('未获取到有效距离')
     }
   } catch (err: any) {
     if (seq !== distanceCalcSeq) return
-    resetDistanceResult()
-    distanceErrorMessage.value = err?.response?.data?.error || err?.message || '距离计算失败'
+    distanceErrorMessage.value = ''
   } finally {
     if (seq === distanceCalcSeq) {
       distanceLoading.value = false
@@ -1176,7 +1202,7 @@ async function submit() {
 
             <div class="fee-summary">
               <div class="pricing-formula">
-                基础费 ¥{{ formatMoney(breakdown.base_fee) }} + 距离费（{{ formatDistanceMeters(routeDistanceMeters) }}）
+                基础费 ¥{{ formatMoney(breakdown.base_fee) }} + 距离费 ¥{{ formatMoney(breakdown.distance_fee) }}（{{ formatDistanceMeters(routeDistanceMeters) }}）
                 <template v-if="form.urgency === 1"> + 加急费 ¥{{ formatMoney(breakdown.urgent_fee) }}</template>
               </div>
               <div class="fee-summary__row">
