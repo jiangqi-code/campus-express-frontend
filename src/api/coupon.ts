@@ -1,12 +1,13 @@
 import { http } from './request'
 
-export type Coupon = { id:string; name:string; code:string; type:'DISCOUNT'|'CASH'; value:number|string; min_order_amount:number|string; max_discount:number|string; usage_limit:number; total_limit:number; received_count:number; used_count:number; start_date:string; end_date:string; status:'ACTIVE'|'EXPIRED'|'DISABLED'; can_receive?:boolean }
+export type Coupon = { id:string; name:string; code:string; type:'DISCOUNT'|'CASH'; value:number|string; min_order_amount:number|string; max_discount:number|string; usage_limit:number; total_limit:number; received_count:number; used_count:number; start_date:string; end_date:string; status:'ACTIVE'|'EXPIRED'|'DISABLED'; can_receive?:boolean; received_by_user?:number }
 export type UserCoupon = { id:string; status:'UNUSED'|'USED'|'EXPIRED'; received_at:string; created_at?:string; used_at?:string; expired_at:string; claimed_at?:string|null; coupon:Coupon }
+export type ClaimableCoupon = Coupon & { can_receive:boolean; received_by_user:number }
 export type CouponEvent = { id:string; coupon_id:string; trigger_type:'NEW_USER'|'BIRTHDAY'|'HOLIDAY'; start_date?:string; end_date?:string; is_active:boolean; coupon:Coupon }
 const data = (response:any) => response.data?.data ?? response.data
 const WELCOME_QUEUE_KEY = 'ce_welcome_coupon_queue'
 
-export const getAvailableCoupons = async (amount?:number) => data(await http.get('/coupons/available',{params:{amount}})) as UserCoupon[]
+export const getClaimableCoupons = async () => data(await http.get('/coupons/available')) as ClaimableCoupon[]
 export const getMyCoupons = async (params:Record<string,unknown>) => data(await http.get('/coupons/my',{ params })) as {list:UserCoupon[];total:number}
 export const receiveCoupon = async (id:string) => data(await http.post(`/coupons/receive/${encodeURIComponent(id)}`))
 export const applyCoupon = async (payload:Record<string,unknown>) => data(await http.post('/coupons/apply',payload))

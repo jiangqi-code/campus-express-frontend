@@ -6,7 +6,7 @@ import { onBeforeRouteLeave, useRouter } from 'vue-router'
 
 import { baseURL, http } from '@/api/request'
 import { useAuthStore } from '@/stores/auth'
-import { getAvailableCoupons, type UserCoupon } from '@/api/coupon'
+import { getUsableCoupons, type UserCoupon } from '@/api/coupon'
 
 type ItemType = '快递' | '餐饮' | '文件' | '药品'
 
@@ -349,7 +349,7 @@ async function loadCoupons() {
   const sequence = ++couponRequestSequence
   couponLoading.value = true
   try {
-    const rows = await getAvailableCoupons(deliveryFeeFinal.value)
+    const rows = await getUsableCoupons(deliveryFeeFinal.value)
     if (sequence !== couponRequestSequence) return
     coupons.value = rows
     if (!rows.some((item) => item.id === selectedCouponId.value)) selectedCouponId.value = ''

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   checkCouponNotification,
@@ -12,7 +12,11 @@ const items = ref<UserCoupon[]>([])
 const visible = ref(false)
 const active = ref(0)
 const claiming = ref(false)
+const checking = ref(false)
 const coupon = computed(() => items.value[active.value])
+const knownPendingIds = new Set<string>()
+let initialized = false
+let checkTimer: ReturnType<typeof window.setInterval> | undefined
 
 const valueText = (row: UserCoupon) =>
   row.coupon.type === 'CASH' ? `¥${Number(row.coupon.value).toFixed(0)}` : `减 ${Number(row.coupon.value)}%`
@@ -21,21 +25,34 @@ const condition = (row: UserCoupon) =>
     ? `满 ¥${Number(row.coupon.min_order_amount).toFixed(2)} 可用`
     : '无门槛使用'
 
-async function load() {
+async function load(openForNewItems = false) {
+  if (checking.value) return
+  checking.value = true
   const queued = takeQueuedWelcomeCoupons()
-  if (queued.length) {
-    items.value = queued
-    visible.value = true
-  }
+  let remote: UserCoupon[] = []
   try {
-    const remote = await checkCouponNotification()
+    remote = await checkCouponNotification()
+  } catch {
+    remote = []
+  } finally {
     const merged = new Map<string, UserCoupon>()
     ;[...queued, ...remote].forEach((item) => merged.set(item.id, item))
-    items.value = [...merged.values()]
-  } catch {
-    items.value = queued
+    const next = [...merged.values()]
+    const hasNewItems = next.some((item) => !knownPendingIds.has(item.id))
+    items.value = next
+    active.value = Math.min(active.value, Math.max(0, next.length - 1))
+
+    if (!initialized) {
+      visible.value = next.length > 0
+    } else if (openForNewItems && hasNewItems) {
+      visible.value = true
+    }
+
+    knownPendingIds.clear()
+    next.forEach((item) => knownPendingIds.add(item.id))
+    initialized = true
+    checking.value = false
   }
-  visible.value = items.value.length > 0
 }
 
 async function claim() {
@@ -58,7 +75,26 @@ async function claim() {
   }
 }
 
-onMounted(load)
+function refreshForNewItems() {
+  void load(true)
+}
+
+function handleVisibilityChange() {
+  if (!document.hidden) refreshForNewItems()
+}
+
+onMounted(() => {
+  void load()
+  window.addEventListener('focus', refreshForNewItems)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  checkTimer = window.setInterval(refreshForNewItems, 60_000)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('focus', refreshForNewItems)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  if (checkTimer) window.clearInterval(checkTimer)
+})
 </script>
 
 <template>
