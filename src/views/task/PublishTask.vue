@@ -105,6 +105,14 @@ function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100
 }
 
+function getCurrentTimeSlot(date = new Date()) {
+  const hour = date.getHours()
+  if (hour < 6) return '00-06'
+  if (hour < 12) return '06-12'
+  if (hour < 18) return '12-18'
+  return '18-24'
+}
+
 function formatMoney(value: number | null | undefined) {
   return roundMoney(normalizeNumber(value, 0)).toFixed(2)
 }
@@ -407,6 +415,8 @@ async function calculateAiPricing() {
     delivery_lng: form.delivery_lng,
     delivery_lat: form.delivery_lat,
     distance_meters: Math.round(Number(routeDistanceMeters.value)),
+    distanceKm: Number(distanceKm.value.toFixed(3)),
+    timeSlot: getCurrentTimeSlot(),
     task_type: form.type,
     type: form.type,
     urgency: form.urgency,
