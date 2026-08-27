@@ -1,0 +1,91 @@
+<script setup lang="ts">
+import { onMounted, reactive, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { EditPen, Plus, RefreshRight } from '@element-plus/icons-vue'
+import { http } from '@/api/request'
+
+type Merchant = { id: number; name: string; description?: string | null; address: string; phone?: string | null; status: string; audit_note?: string | null; is_open: boolean; commission_rate: number }
+type MenuItem = { id: number; name: string; description?: string | null; price: number; stock: number; is_active: boolean; sort_order: number }
+type FoodOrder = { id: number; status: string; delivery_address: string; total_amount: number; created_at: string; user?: { nickname?: string; phone?: string }; items: Array<{ item_name: string; quantity: number }> }
+
+const loading = ref(false)
+const merchant = ref<Merchant | null>(null)
+const menuItems = ref<MenuItem[]>([])
+const orders = ref<FoodOrder[]>([])
+const applying = ref(false)
+const itemDialog = ref(false)
+const editingItemId = ref<number | null>(null)
+const merchantForm = reactive({ name: '', description: '', address: '', phone: '' })
+const itemForm = reactive({ name: '', description: '', price: 0, stock: -1, sort_order: 0, is_active: true })
+
+function unwrap(result: any) { return result?.data?.data ?? result?.data ?? result ?? {} }
+function errorMessage(error: any) { return error?.response?.data?.error || error?.message || '操作失败，请稍后重试' }
+function formatMoney(value: number) { return `¥${Number(value || 0).toFixed(2)}` }
+function formatTime(value: string) { const date = new Date(value); return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString('zh-CN', { hour12: false }) }
+function statusText(status: string) { return ({ PENDING: '审核中', APPROVED: '已通过', REJECTED: '已驳回', DISABLED: '已停用' } as Record<string, string>)[status] || status }
+
+async function load() {
+  loading.value = true
+  try {
+    const result = unwrap(await http.get('/food/merchant/my'))
+    const data = result.data ?? result
+    merchant.value = data?.merchant || null
+    menuItems.value = Array.isArray(data?.menu_items) ? data.menu_items : []
+    if (merchant.value) {
+      Object.assign(merchantForm, { name: merchant.value.name, description: merchant.value.description || '', address: merchant.value.address, phone: merchant.value.phone || '' })
+      const orderResult = unwrap(await http.get(`/food/merchant/${merchant.value.id}/orders`, { params: { page_size: 20 } }))
+      orders.value = Array.isArray(orderResult.list) ? orderResult.list : []
+    } else orders.value = []
+  } catch (error) { ElMessage.error(errorMessage(error)) } finally { loading.value = false }
+}
+
+async function saveMerchant() {
+  if (!merchantForm.name.trim() || !merchantForm.address.trim()) return ElMessage.warning('请填写商家名称和地址')
+  applying.value = true
+  try {
+    if (merchant.value) await http.put(`/food/merchant/${merchant.value.id}`, merchantForm)
+    else await http.post('/food/merchant/apply', merchantForm)
+    ElMessage.success(merchant.value ? '商家资料已更新' : '入驻申请已提交')
+    await load()
+  } catch (error) { ElMessage.error(errorMessage(error)) } finally { applying.value = false }
+}
+
+async function setOpen(value: boolean) {
+  if (!merchant.value) return
+  try { await http.put(`/food/merchant/${merchant.value.id}`, { is_open: value }); ElMessage.success(value ? '商家已开业' : '商家已打烊') } catch (error) { merchant.value.is_open = !value; ElMessage.error(errorMessage(error)) }
+}
+
+function openCreateItem() { editingItemId.value = null; Object.assign(itemForm, { name: '', description: '', price: 0, stock: -1, sort_order: menuItems.value.length * 10 + 10, is_active: true }); itemDialog.value = true }
+function openEditItem(item: MenuItem) { editingItemId.value = item.id; Object.assign(itemForm, item); itemDialog.value = true }
+async function saveItem() {
+  if (!merchant.value || !itemForm.name.trim() || Number(itemForm.price) <= 0) return ElMessage.warning('请填写菜品名称和正确价格')
+  try {
+    if (editingItemId.value) await http.put(`/food/merchant/${merchant.value.id}/menu/${editingItemId.value}`, itemForm)
+    else await http.post(`/food/merchant/${merchant.value.id}/menu`, itemForm)
+    ElMessage.success(editingItemId.value ? '菜品已更新' : '菜品已添加'); itemDialog.value = false; await load()
+  } catch (error) { ElMessage.error(errorMessage(error)) }
+}
+async function toggleItem(item: MenuItem) { if (!merchant.value) return; try { await http.put(`/food/merchant/${merchant.value.id}/menu/${item.id}`, { is_active: item.is_active }); ElMessage.success(item.is_active ? '已上架' : '已下架') } catch (error) { item.is_active = !item.is_active; ElMessage.error(errorMessage(error)) } }
+
+onMounted(load)
+</script>
+
+<template>
+  <section class="merchant-center">
+    <header class="page-heading"><div><span class="eyebrow">CAMPUS FOOD · MERCHANT</span><h2>商家工作台</h2><p>管理档口资料、菜品上架和顾客订单。</p></div><el-button :icon="RefreshRight" :loading="loading" @click="load">刷新</el-button></header>
+    <template v-if="!merchant">
+      <section class="apply-panel"><div class="panel-intro"><h3>申请入驻</h3><p>提交资料后，管理员审核通过即可开始上架菜品和接收订单。</p></div><el-form label-position="top" class="merchant-form"><el-form-item label="商家名称" required><el-input v-model="merchantForm.name" placeholder="例如：一食堂 · 面点档" /></el-form-item><el-form-item label="商家地址" required><el-input v-model="merchantForm.address" placeholder="例如：一食堂一楼 A03 档口" /></el-form-item><el-form-item label="联系电话"><el-input v-model="merchantForm.phone" /></el-form-item><el-form-item label="商家介绍"><el-input v-model="merchantForm.description" type="textarea" :rows="3" placeholder="说明主营菜品、营业时间等" /></el-form-item><el-button type="primary" :loading="applying" @click="saveMerchant">提交入驻申请</el-button></el-form></section>
+    </template>
+    <template v-else>
+      <section class="merchant-status"><div><span class="status-label" :class="`status-${merchant.status.toLowerCase()}`">{{ statusText(merchant.status) }}</span><h3>{{ merchant.name }}</h3><p v-if="merchant.audit_note">审核说明：{{ merchant.audit_note }}</p><p v-else>{{ merchant.address }} · 平台抽成 {{ (merchant.commission_rate * 100).toFixed(0) }}%</p></div><el-switch :model-value="merchant.is_open" :disabled="merchant.status !== 'APPROVED'" active-text="营业中" inactive-text="已打烊" @change="setOpen" /></section>
+      <section class="work-panel"><div class="section-head"><div><h3>商家资料</h3><p>修改资料不会影响已经生成的外卖订单。</p></div><el-button type="primary" :loading="applying" @click="saveMerchant">保存资料</el-button></div><div class="merchant-form compact"><el-input v-model="merchantForm.name" placeholder="商家名称" /><el-input v-model="merchantForm.address" placeholder="商家地址" /><el-input v-model="merchantForm.phone" placeholder="联系电话" /><el-input v-model="merchantForm.description" placeholder="商家介绍" /></div></section>
+      <section class="work-panel"><div class="section-head"><div><h3>菜品管理</h3><p>库存填 -1 表示不限量。</p></div><el-button type="primary" :icon="Plus" :disabled="merchant.status === 'DISABLED'" @click="openCreateItem">添加菜品</el-button></div><el-table :data="menuItems" v-loading="loading"><el-table-column prop="sort_order" label="排序" width="76" /><el-table-column prop="name" label="菜品" min-width="180"><template #default="{ row }"><div class="item-cell"><strong>{{ row.name }}</strong><span>{{ row.description || '暂无介绍' }}</span></div></template></el-table-column><el-table-column label="价格" width="110"><template #default="{ row }">{{ formatMoney(row.price) }}</template></el-table-column><el-table-column prop="stock" label="库存" width="90"><template #default="{ row }">{{ row.stock < 0 ? '不限量' : row.stock }}</template></el-table-column><el-table-column label="上架" width="100"><template #default="{ row }"><el-switch v-model="row.is_active" @change="toggleItem(row)" /></template></el-table-column><el-table-column label="操作" width="90"><template #default="{ row }"><el-button link type="primary" :icon="EditPen" @click="openEditItem(row)">编辑</el-button></template></el-table-column></el-table></section>
+      <section class="work-panel"><div class="section-head"><div><h3>最新订单</h3><p>用户支付后，跑腿员会接取配送订单。</p></div></div><el-table :data="orders" v-loading="loading"><el-table-column prop="id" label="订单" width="90"><template #default="{ row }">#{{ row.id }}</template></el-table-column><el-table-column label="菜品" min-width="220"><template #default="{ row }">{{ row.items.map((item: any) => `${item.item_name} ×${item.quantity}`).join('、') }}</template></el-table-column><el-table-column label="顾客" width="130"><template #default="{ row }">{{ row.user?.nickname || row.user?.phone || '-' }}</template></el-table-column><el-table-column prop="delivery_address" label="配送地址" min-width="180" show-overflow-tooltip /><el-table-column label="金额" width="100"><template #default="{ row }">{{ formatMoney(row.total_amount) }}</template></el-table-column><el-table-column prop="status" label="状态" width="130" /><el-table-column label="时间" width="170"><template #default="{ row }">{{ formatTime(row.created_at) }}</template></el-table-column></el-table></section>
+    </template>
+    <el-dialog v-model="itemDialog" :title="editingItemId ? '编辑菜品' : '添加菜品'" width="500px" destroy-on-close><el-form label-position="top"><el-form-item label="菜品名称" required><el-input v-model="itemForm.name" /></el-form-item><el-form-item label="菜品介绍"><el-input v-model="itemForm.description" /></el-form-item><div class="form-grid"><el-form-item label="价格（元）"><el-input-number v-model="itemForm.price" :min="0.01" :precision="2" /></el-form-item><el-form-item label="库存"><el-input-number v-model="itemForm.stock" :min="-1" /></el-form-item></div><el-form-item label="排序"><el-input-number v-model="itemForm.sort_order" :min="0" /></el-form-item></el-form><template #footer><el-button @click="itemDialog = false">取消</el-button><el-button type="primary" @click="saveItem">保存</el-button></template></el-dialog>
+  </section>
+</template>
+
+<style scoped>
+.merchant-center { display: grid; gap: 20px; }.page-heading, .section-head, .merchant-status { display: flex; align-items: end; justify-content: space-between; gap: 20px; }.page-heading { padding-bottom: 18px; border-bottom: 1px solid var(--color-border); }.eyebrow { color: var(--color-primary); font-size: 11px; font-weight: 850; letter-spacing: .1em; }.page-heading h2 { margin: 6px 0 3px; color: var(--color-navy); font-size: 26px; letter-spacing: -.04em; }.page-heading p, .section-head p, .merchant-status p { margin: 3px 0 0; color: var(--color-text-muted); font-size: 13px; }.apply-panel, .work-panel, .merchant-status { border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 22px; background: var(--color-surface); box-shadow: var(--shadow-sm); }.apply-panel { display: grid; grid-template-columns: minmax(0, .8fr) minmax(340px, 1.2fr); gap: 36px; }.panel-intro h3, .section-head h3, .merchant-status h3 { margin: 0; color: var(--color-navy); font-size: 18px; }.panel-intro p { max-width: 290px; color: var(--color-text-secondary); font-size: 14px; line-height: 1.7; }.merchant-form { display: grid; }.merchant-form.compact { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }.section-head { align-items: start; margin-bottom: 17px; }.merchant-status { align-items: center; }.status-label { display: inline-flex; margin-bottom: 9px; border-radius: 999px; padding: 5px 9px; font-size: 11px; font-weight: 800; }.status-pending { background: #fff3cd; color: #926b08; }.status-approved { background: #e4f5e9; color: #247143; }.status-rejected, .status-disabled { background: #fde8e8; color: #a73838; }.item-cell { display: grid; gap: 3px; }.item-cell strong { color: var(--color-navy); }.item-cell span { overflow: hidden; color: var(--color-text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; } @media (max-width: 800px) { .apply-panel { grid-template-columns: 1fr; }.merchant-form.compact { grid-template-columns: 1fr; }.page-heading, .section-head { align-items: flex-start; flex-direction: column; } }
+</style>

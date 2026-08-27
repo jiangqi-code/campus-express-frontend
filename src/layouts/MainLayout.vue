@@ -40,6 +40,8 @@ const menuGroups = computed<MenuGroup[]>(() => {
   const adminOnly: MenuGroup[] = [{
     label: '运营管理', roles: ['admin'], items: [
       { label: '运营概览', to: '/admin/dashboard', roles: ['admin'] },
+      { label: '信息广场治理', to: '/admin/forum', roles: ['admin'] },
+      { label: '校园外卖运营', to: '/admin/food', roles: ['admin'] },
       { label: '用户管理', to: '/admin/users', roles: ['admin'] },
       { label: '任务治理', to: '/admin/tasks', roles: ['admin'] },
       { label: '订单治理', to: '/admin/orders', roles: ['admin'] },
@@ -49,7 +51,7 @@ const menuGroups = computed<MenuGroup[]>(() => {
       { label: '投诉处理', to: '/admin/complaints', roles: ['admin'] },
     ],
   }, {
-    label: '系统与风控', roles: ['admin'], items: [
+    label: '运营配置与风控', roles: ['admin'], items: [
       { label: '登录日志', to: '/admin/logs/login', roles: ['admin'] },
       { label: '错误日志', to: '/admin/logs/error', roles: ['admin'] },
       { label: '举报管理', to: '/admin/reports', roles: ['admin'] },
@@ -58,7 +60,7 @@ const menuGroups = computed<MenuGroup[]>(() => {
       { label: '发放规则', to: '/admin/coupon-events', roles: ['admin'] },
       { label: '发放记录', to: '/admin/coupon-records', roles: ['admin'] },
       { label: '敏感词管理', to: '/admin/sensitive-words', roles: ['admin'] },
-      { label: '系统配置', to: '/admin/config', roles: ['admin'] },
+      { label: '运营配置中心', to: '/admin/config', roles: ['admin'] },
     ],
   }]
   const account: MenuGroup[] = [{ label: '账户', items: [{ label: '个人资料', to: '/profile' }] }]
@@ -71,6 +73,7 @@ const menuGroups = computed<MenuGroup[]>(() => {
       { label: `我的消息${messageStore.unreadCount ? ` · ${messageStore.unreadCount > 99 ? '99+' : messageStore.unreadCount}` : ''}`, to: '/messages' },
     ] },
     { label: '服务记录', items: [{ label: '我的评价', to: '/reviews' }] },
+    { label: '商家服务', items: [{ label: '商家工作台', to: '/food/merchant' }] },
     { label: '资金与权益', items: [{ label: '钱包流水', to: '/wallet/logs' }, { label: '我的优惠券', to: '/coupon' }] },
     ...account,
   ]

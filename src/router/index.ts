@@ -165,12 +165,30 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/user/WalletLogs.vue'),
         meta: { title: '钱包流水' },
       },
+      {
+        path: 'food/merchant',
+        name: 'food-merchant',
+        component: () => import('@/views/food/MerchantCenter.vue'),
+        meta: { title: '商家工作台' },
+      },
 
       {
         path: 'admin/dashboard',
         name: 'admin-dashboard',
         component: () => import('@/views/admin/Dashboard.vue'),
         meta: { title: '后台仪表盘', requiresAdmin: true, roles: ['admin'] satisfies Role[] },
+      },
+      {
+        path: 'admin/forum',
+        name: 'admin-forum',
+        component: () => import('@/views/admin/ForumModeration.vue'),
+        meta: { title: '信息广场治理', requiresAdmin: true, roles: ['admin'] satisfies Role[] },
+      },
+      {
+        path: 'admin/food',
+        name: 'admin-food',
+        component: () => import('@/views/admin/FoodOperations.vue'),
+        meta: { title: '校园外卖运营', requiresAdmin: true, roles: ['admin'] satisfies Role[] },
       },
       {
         path: 'admin/logs',

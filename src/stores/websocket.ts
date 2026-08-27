@@ -127,6 +127,19 @@ export const useWebsocketStore = defineStore('websocket', () => {
     socket.on('order:status', (data: any) => {
       console.log('[Socket.IO] 订单状态变更:', data)
     })
+
+    socket.on('food:order:status', (data: any) => {
+      const statusLabel: Record<string, string> = {
+        PAID: '待配送', ACCEPTED: '已接单', PICKED: '已取餐', DELIVERING: '配送中', COMPLETED: '已完成', CANCELLED: '已取消',
+      }
+      const label = statusLabel[String(data?.toStatus ?? '')] ?? '状态已更新'
+      ElNotification({
+        title: '外卖订单更新',
+        message: `${String(data?.merchantName ?? '外卖订单')} #${String(data?.orderId ?? '')} ${label}`,
+        type: String(data?.toStatus) === 'CANCELLED' ? 'warning' : 'success',
+        duration: 5000,
+      })
+    })
   }
 
   function disconnect() {

@@ -32,6 +32,26 @@
     </div>
 
     <div v-if="activeTab === 'config'" class="vstack gap-3 mt-3">
+      <el-card shadow="never" class="border" v-loading="loading" header="运营配置中心">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <span class="text-muted small me-2">新人、生日与节日券在发放规则中配置；外卖抽成和配送奖励在外卖运营中配置。</span>
+          <RouterLink class="el-button el-button--primary el-button--small" to="/admin/coupon-events">优惠券发放规则</RouterLink>
+          <RouterLink class="el-button el-button--small" to="/admin/food">外卖与跑腿奖励</RouterLink>
+          <RouterLink class="el-button el-button--small" to="/admin/sensitive-words">敏感词库</RouterLink>
+          <RouterLink class="el-button el-button--small" to="/admin/forum">信息审核</RouterLink>
+        </div>
+      </el-card>
+
+      <el-card shadow="never" class="border" v-loading="loading" header="邀请裂变奖励">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+          <el-select v-model="inviteRewardCouponId" clearable filterable placeholder="选择邀请双方获得的优惠券" style="width: min(440px, 100%)">
+            <el-option v-for="coupon in inviteRewardCoupons" :key="coupon.id" :label="`${coupon.name}（${coupon.code}）`" :value="coupon.id" />
+          </el-select>
+          <el-button type="primary" :loading="savingInviteReward" @click="saveInviteReward">保存邀请奖励</el-button>
+          <span class="text-muted small">留空即关闭邀请赠券；已成功绑定的邀请关系不会受影响。</span>
+        </div>
+      </el-card>
+
       <el-card v-for="g in groups" :key="g.key" shadow="never" class="border" v-loading="loading" :header="g.label">
         <el-form label-width="160px" class="mb-0">
           <el-form-item v-for="it in g.items" :key="it.key" :label="it.label">
@@ -143,6 +163,7 @@ import { RefreshRight } from '@element-plus/icons-vue'
 
 import { http } from '@/api/request'
 import { getAdminConfig, updateAdminConfig, type AdminConfigResponse } from '@/api/admin'
+import { getAdminCoupons, type Coupon } from '@/api/coupon'
 
 type ConfigItem = {
   key: string
@@ -202,6 +223,9 @@ const loading = ref(false)
 const errorMessage = ref('')
 const savingKey = ref<string>('')
 const activeTab = ref<'config' | 'pricing'>('config')
+const inviteRewardCouponId = ref('')
+const inviteRewardCoupons = ref<Coupon[]>([])
+const savingInviteReward = ref(false)
 
 const rawConfig = ref<Record<string, any>>({})
 const flatConfig = ref<Record<string, any>>({})
@@ -320,15 +344,35 @@ async function loadConfig() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const res = await getAdminConfig()
+    const [res, couponResult] = await Promise.all([
+      getAdminConfig(),
+      getAdminCoupons({ page: 1, pageSize: 100 }),
+    ])
     const map = normalizeConfigResponse(res)
     rawConfig.value = map
     flatConfig.value = flattenObject(map, '', {})
     initFormFromConfig(flatConfig.value)
+    inviteRewardCouponId.value = String(map.invite_reward_coupon_id ?? '').trim() === 'disabled' ? '' : String(map.invite_reward_coupon_id ?? '').trim()
+    inviteRewardCoupons.value = (Array.isArray((couponResult as any)?.list) ? (couponResult as any).list : []).filter((coupon: Coupon) => coupon.status === 'ACTIVE')
   } catch (err: any) {
     errorMessage.value = getErrorMessage(err) || '加载配置失败'
   } finally {
     loading.value = false
+  }
+}
+
+async function saveInviteReward() {
+  if (savingInviteReward.value) return
+  savingInviteReward.value = true
+  try {
+    const value = inviteRewardCouponId.value || 'disabled'
+    await updateAdminConfig('invite_reward_coupon_id', value)
+    flatConfig.value = { ...flatConfig.value, invite_reward_coupon_id: value }
+    ElMessage.success(value === 'disabled' ? '邀请赠券已关闭' : '邀请双方奖励券已保存')
+  } catch (err: any) {
+    ElMessage.error(getErrorMessage(err))
+  } finally {
+    savingInviteReward.value = false
   }
 }
 

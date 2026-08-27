@@ -24,15 +24,17 @@ const error = ref('')
 const updated = ref('')
 const els: Partial<Record<Key, HTMLDivElement>> = {}
 const charts: Partial<Record<Key, echarts.ECharts>> = {}
-const data = ref({ todayOrders: 0, todayAmount: 0, activeUsers: 0, runnerCount: 0, trend: [] as { date: string; value: number }[], rank: [] as Row[], types: [] as Row[], heat: [] as Heat[] })
-const panels: { key: Key; title: string; en: string }[] = [{ key: 'trend', title: '近 7 天订单趋势', en: 'ORDERS TREND' }, { key: 'rank', title: '跑腿员接单排行', en: 'RUNNER RANKING' }, { key: 'types', title: '订单类型分布', en: 'ORDER CATEGORY' }, { key: 'heat', title: '区域订单密度', en: 'CAMPUS HEATMAP' }]
+const data = ref({ todayOrders: 0, weekOrders: 0, monthOrders: 0, todayAmount: 0, activeUsers: 0, runnerCount: 0, trend: [] as { date: string; value: number }[], rank: [] as Row[], types: [] as Row[], heat: [] as Heat[] })
+const panels: { key: Key; title: string; en: string }[] = [{ key: 'trend', title: '近 7 天订单趋势', en: 'ORDERS TREND' }, { key: 'rank', title: '跑腿员服务排行', en: 'RUNNER RANKING' }, { key: 'types', title: '业务分布', en: 'SERVICE MIX' }, { key: 'heat', title: '区域订单密度', en: 'CAMPUS HEATMAP' }]
 const toNumber = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0
 const toList = (value: unknown): any[] => Array.isArray(value) ? value : []
 const cards = computed(() => [
   { name: '今日订单量', value: data.value.todayOrders.toLocaleString(), en: 'TODAY ORDERS', color: '#1457d9' },
-  { name: '今日交易额', value: new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(data.value.todayAmount), en: 'TODAY REVENUE', color: '#2f6fe4' },
-  { name: '活跃用户', value: data.value.activeUsers.toLocaleString(), en: 'ACTIVE USERS', color: '#4d85ea' },
-  { name: '在线运力', value: data.value.runnerCount.toLocaleString(), en: 'ACTIVE RUNNERS', color: '#0d2e70' },
+  { name: '本周订单量', value: data.value.weekOrders.toLocaleString(), en: 'WEEKLY ORDERS', color: '#2f6fe4' },
+  { name: '本月订单量', value: data.value.monthOrders.toLocaleString(), en: 'MONTHLY ORDERS', color: '#4d85ea' },
+  { name: '今日交易额', value: new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(data.value.todayAmount), en: 'TODAY REVENUE', color: '#0d2e70' },
+  { name: '近 7 日活跃', value: data.value.activeUsers.toLocaleString(), en: 'ACTIVE USERS', color: '#5c70ba' },
+  { name: '服务跑腿员', value: data.value.runnerCount.toLocaleString(), en: 'RUNNER CAPACITY', color: '#287660' },
 ])
 
 function bind(key: Key, el: Element | ComponentPublicInstance | null) { if (el instanceof HTMLDivElement) els[key] = el }
@@ -44,6 +46,8 @@ function normalize(response: any) {
   const rankSource = toList(root.runnerRanking ?? root.runnerRank)
   return {
     todayOrders: toNumber(root.todayOrders ?? order.todayOrders),
+    weekOrders: toNumber(root.weekOrders ?? order.weekOrders),
+    monthOrders: toNumber(root.monthOrders ?? order.monthOrders),
     todayAmount: toNumber(root.todayAmount ?? amount.todayAmount ?? root.totalAmount ?? amount.totalAmount),
     activeUsers: toNumber(root.activeUsers ?? users.activeUsers),
     runnerCount: toNumber(root.runnerCount ?? users.runnerCount ?? rankSource.length),
@@ -88,8 +92,8 @@ onUnmounted(() => { window.removeEventListener('resize', resize); Object.values(
 .screen { min-height: calc(100vh - 72px); padding: 0; color: var(--color-text); font-family: "PingFang SC", "Microsoft YaHei", sans-serif; }
 .top { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 18px; padding: 0 0 18px; border-bottom: 1px solid var(--color-border); }.top p { margin: 0; color: var(--color-text-muted); }
 .actions { display: flex; align-items: center; gap: 14px; color: var(--color-text-muted); font-size: 12px; }.system-state { display: inline-flex; align-items: center; gap: 7px; color: var(--color-text-secondary); }.system-state::before { width: 7px; height: 7px; border-radius: 50%; background: var(--color-primary); content: ""; }.actions button { border: 1px solid var(--color-border-strong); border-radius: var(--radius-button); padding: 9px 14px; background: #fff; color: var(--color-text-secondary); font-weight: 700; cursor: pointer; }.actions button:hover { border-color: var(--color-primary); color: var(--color-primary); }
-.alert { margin-bottom: 16px; }.stats { display: grid; grid-template-columns: repeat(4, 1fr); margin-bottom: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-surface); }.stats article { display: grid; min-height: 104px; align-content: center; gap: 2px; padding: 18px; }.stats article + article { border-left: 1px solid var(--color-border); }.stats article:hover { background: var(--color-fill); }.stats span { color: var(--color-text-muted); font-size: 12px; font-weight: 700; }.stats strong { color: var(--c); font-size: clamp(24px, 2vw, 31px); letter-spacing: -.04em; }.stats small { color: var(--color-text-muted); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+.alert { margin-bottom: 16px; }.stats { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-surface); }.stats article { display: grid; min-height: 104px; align-content: center; gap: 2px; padding: 18px; }.stats article:not(:nth-child(3n + 1)) { border-left: 1px solid var(--color-border); }.stats article:nth-child(n + 4) { border-top: 1px solid var(--color-border); }.stats article:hover { background: var(--color-fill); }.stats span { color: var(--color-text-muted); font-size: 12px; font-weight: 700; }.stats strong { color: var(--c); font-size: clamp(24px, 2vw, 31px); letter-spacing: -.04em; }.stats small { color: var(--color-text-muted); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
 .grid { display: grid; grid-template-columns: 1.25fr 1fr; grid-template-rows: repeat(2, 310px); gap: 12px; }.grid article { overflow: hidden; border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-surface); transition: transform var(--transition-fast), border-color var(--transition-fast); }.grid article:hover { transform: translateY(-1px); border-color: var(--color-primary); }.grid header { display: flex; align-items: center; justify-content: space-between; height: 54px; padding: 0 18px; border-bottom: 1px solid var(--color-border); }.grid h2 { margin: 0; color: var(--color-navy); font-size: 15px; }.grid header small { color: var(--color-text-muted); font-size: 10px; font-weight: 800; letter-spacing: .08em; }.chart { height: calc(100% - 54px); } footer { display: flex; justify-content: space-between; margin-top: 18px; color: var(--color-text-muted); font-size: 10px; }
-@media (max-width: 1100px) { .stats { grid-template-columns: repeat(2, 1fr); }.stats article:nth-child(3) { border-left: 0; border-top: 1px solid var(--color-border); }.stats article:nth-child(4) { border-top: 1px solid var(--color-border); }.grid { grid-template-columns: 1fr; grid-template-rows: repeat(4, 320px); } }
+@media (max-width: 1100px) { .stats { grid-template-columns: repeat(2, 1fr); }.stats article { border-left: 0; }.stats article:nth-child(even) { border-left: 1px solid var(--color-border); }.stats article:nth-child(n + 3) { border-top: 1px solid var(--color-border); }.grid { grid-template-columns: 1fr; grid-template-rows: repeat(4, 320px); } }
 @media (max-width: 700px) { .top { align-items: flex-start; flex-direction: column; padding: 22px; }.actions { flex-wrap: wrap; }.stats { grid-template-columns: 1fr; }.stats article + article { border-top: 1px solid var(--color-border); border-left: 0; }.grid { grid-template-rows: repeat(4, 280px); } footer { gap: 8px; flex-direction: column; } }
 </style>
