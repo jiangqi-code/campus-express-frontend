@@ -1,9 +1,9 @@
 :root {
-  --color-navy: #081120;
-  --color-primary: #1457d9;
-  --color-primary-hover: #0f47b7;
-  --color-primary-active: #0a378e;
-  --color-primary-soft: #e9f0ff;
+  --color-navy: #132b4f;
+  --color-primary: #2878e6;
+  --color-primary-hover: #1e64c8;
+  --color-primary-active: #164d9e;
+  --color-primary-soft: #e8f2ff;
   --color-mustard: #3473df;
   --color-mustard-soft: #edf3ff;
   --color-success: #2164de;
@@ -14,34 +14,37 @@
   --color-danger-soft: #e8efff;
   --color-info: #4c7ee6;
   --color-info-soft: #eff4ff;
-  --color-text: #0e172a;
-  --color-text-secondary: #253552;
-  --color-text-muted: #66738a;
-  --color-text-disabled: #97a2b4;
-  --color-bg: #f4f7fc;
+  --color-text: #14243d;
+  --color-text-secondary: #38506f;
+  --color-text-muted: #73849d;
+  --color-text-disabled: #a2b0c2;
+  --color-bg: #f5f9ff;
   --color-surface: #ffffff;
-  --color-fill: #f7f9fd;
-  --color-fill-strong: #e7edf7;
-  --color-border: #dbe3f0;
-  --color-border-strong: #bac8df;
+  --color-fill: #f5f9ff;
+  --color-fill-strong: #e4edf9;
+  --color-border: #dbe6f2;
+  --color-border-strong: #becde2;
+  --color-sidebar: #e5f1ff;
+  --color-sidebar-rule: #cfe0f5;
+  --color-canvas: #f7fbff;
   --space-0: 0px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px; --space-6: 24px; --space-7: 28px; --space-8: 32px; --space-9: 36px; --space-10: 40px; --space-12: 48px; --space-14: 56px; --space-16: 64px; --space-20: 80px;
   --radius-button: 6px;
   --radius-card: 10px;
   --radius-lg: 12px;
   --radius-pill: 999px;
-  --shadow-sm: 0 8px 22px rgba(8, 17, 32, 0.06);
-  --shadow-md: 0 16px 40px rgba(8, 17, 32, 0.12);
-  --shadow-lg: 0 28px 64px rgba(8, 17, 32, 0.16);
+  --shadow-sm: 0 8px 22px rgba(28, 68, 120, 0.07);
+  --shadow-md: 0 16px 40px rgba(28, 68, 120, 0.12);
+  --shadow-lg: 0 28px 64px rgba(12, 39, 78, 0.18);
   --transition-fast: 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
   --transition: 210ms cubic-bezier(0.2, 0.8, 0.2, 1);
   --transition-slow: 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  --focus-ring: 0 0 0 3px rgba(20, 87, 217, 0.24);
+  --focus-ring: 0 0 0 3px rgba(40, 120, 230, 0.24);
   --font-size-xs: 12px; --font-size-sm: 14px; --font-size-md: 16px; --font-size-lg: 18px; --font-size-xl: 24px;
   --line-height-tight: 1.25; --line-height-normal: 1.55;
 }
 
 :root {
-  --bs-primary: var(--color-primary); --bs-primary-rgb: 20, 87, 217;
+  --bs-primary: var(--color-primary); --bs-primary-rgb: 40, 120, 230;
   --bs-body-bg: var(--color-bg); --bs-body-color: var(--color-text); --bs-secondary-color: var(--color-text-muted); --bs-border-color: var(--color-border);
   --bs-border-radius: var(--radius-card); --bs-border-radius-sm: var(--radius-button); --bs-border-radius-lg: var(--radius-lg);
   --bs-btn-border-radius: var(--radius-button); --bs-btn-border-radius-sm: var(--radius-button); --bs-btn-border-radius-lg: var(--radius-button);

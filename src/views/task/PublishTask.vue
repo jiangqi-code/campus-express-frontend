@@ -1352,7 +1352,7 @@ async function submit() {
 </template>
 
 <style scoped>
-.publish-task { max-width: 1050px; margin: 0 auto; }.publish-header { min-height: 92px; margin-bottom: 18px !important; border-radius: var(--radius-card); padding: 24px 26px; background: var(--color-navy); }.publish-header h2 { color: #fff; font-size: clamp(25px, 3vw, 31px); }
+.publish-task { max-width: 1180px; margin: 0 auto; }.publish-header { display: none; }
 .publish-task :deep(.el-card) { border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-surface); box-shadow: none; }.publish-task :deep(.el-card__body) { padding: 10px 28px 28px; }
 .form-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 30px 0 18px; padding: 0 0 11px; border-bottom: 1px solid var(--color-border-strong); }.form-section-heading strong { color: var(--color-navy); font-size: 16px; }.form-section-heading strong::before { display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 50%; background: var(--color-primary); content: ''; }.form-section-heading > div > div { margin-top: 3px; }
 .pricing-formula { margin-bottom: 12px; border-radius: 10px; padding: 10px 12px; background: var(--color-primary-soft); color: var(--color-text-secondary); font-size: 13px; line-height: 1.55; }.upload-failure-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-radius: 8px; padding: 9px 11px; background: var(--color-danger-soft); color: var(--color-danger); font-size: 13px; }

@@ -566,10 +566,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="task-hall vstack gap-3">
     <div class="hall-header d-flex flex-wrap align-items-end justify-content-between gap-2">
-      <div>
-        <h1 class="h4 mb-1">任务大厅</h1>
-        <div class="text-muted">待接单任务（PENDING）</div>
-      </div>
+      <div class="hall-status">待接单任务（PENDING）</div>
       <div class="d-flex gap-2">
         <RouterLink v-if="canPublish" class="btn btn-primary" to="/task/publish">发布任务</RouterLink>
         <button class="btn btn-outline-primary" type="button" :disabled="loading" @click="fetchList(false)">刷新</button>
@@ -580,6 +577,7 @@ onBeforeUnmount(() => {
 
     <div class="hall-filter-card card border-0 shadow-sm">
       <div class="card-body">
+        <div class="filter-card-title"><h2>筛选任务</h2><span>按地点、价格与时效快速定位</span></div>
         <div class="row g-3 align-items-end">
           <div class="col-12 col-md-7 col-lg-8">
             <label class="form-label text-muted small mb-1">关键词</label>
@@ -693,11 +691,9 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.hall-header { min-height: 118px; border-radius: var(--radius-card); padding: 27px 28px; background: var(--color-navy); color: #fff; }
-.hall-header::after, .hall-header::before { display: none; }
-.hall-header h1 { color: #fff; font-size: clamp(26px, 3vw, 32px); }.hall-header .text-muted { color: rgba(220,230,249,.68) !important; }
-.hall-header .btn-primary { border-color: var(--color-primary); background: var(--color-primary); color: #fff; }.hall-header .btn-primary:hover { border-color: #3675ef; background: #3675ef; color: #fff; }.hall-header .btn-outline-primary { border-color: rgba(220,230,249,.48); color: #fff; }.hall-header .btn-outline-primary:hover { border-color: #fff; background: transparent; color: #fff; }
-.hall-filter-card { border-color: var(--color-border-strong) !important; }.hall-filter-card :deep(.card-body) { padding: 22px; }
+.hall-header { min-height: 48px; padding: 0 0 4px; border-bottom: 1px solid var(--color-border); }.hall-status { color: var(--color-text-secondary); font-size: 14px; font-weight: 700; }
+.hall-filter-card { border-color: var(--color-border) !important; }.hall-filter-card :deep(.card-body) { padding: 24px; }
+.filter-card-title { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }.filter-card-title h2 { margin: 0; color: var(--color-navy); font-size: 18px; }.filter-card-title span { color: var(--color-text-muted); font-size: 13px; }
 .filter-toolbar { display: grid; gap: 12px; padding: 16px; border-radius: var(--radius-button); background: var(--color-fill); }
 .filter-block { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }.filter-label { width: 48px; color: var(--color-text-muted); font-size: .78rem; font-weight: 800; }
 .filter-chip { border: 1px solid var(--color-border); border-radius: var(--radius-pill); padding: 5px 12px; background: var(--color-surface); color: var(--color-text-secondary); font-size: .8rem; font-weight: 650; transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast); }
@@ -709,5 +705,5 @@ onBeforeUnmount(() => {
 .route-label { color: var(--color-text-muted); font-size: .75rem; font-weight: 800; }.task-remark { margin-left: 18px; border-radius: 8px; padding: 7px 10px; background: var(--color-fill); }
 .task-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; }.task-meta span:not(:last-child)::after { content: '·'; margin-left: 16px; color: var(--color-border-strong); }.task-price { color: var(--color-primary); font-size: 1.5rem; font-weight: 800; letter-spacing: -.04em; white-space: nowrap; }
 .task-empty { display: flex; min-height: 300px; flex-direction: column; align-items: center; justify-content: center; text-align: center; }.load-more-state { min-height: 48px; padding: 14px; color: var(--color-text-muted); text-align: center; }
-@media (max-width: 575.98px) { .hall-header { min-height: 96px; padding: 21px 18px; }.hall-header::before { right: 24px; top: 30px; }.filter-label { width: 100%; }.task-route { min-width: 100%; }.task-meta span::after { display: none; }.relay-task-card :deep(.card-body) { padding-right: 16px; }.task-remark { margin-left: 0; } }
+@media (max-width: 575.98px) { .hall-header { min-height: 44px; }.filter-card-title { align-items: flex-start; flex-direction: column; gap: 2px; margin-bottom: 16px; }.filter-label { width: 100%; }.task-route { min-width: 100%; }.task-meta span::after { display: none; }.relay-task-card :deep(.card-body) { padding-right: 16px; }.task-remark { margin-left: 0; } }
 </style>

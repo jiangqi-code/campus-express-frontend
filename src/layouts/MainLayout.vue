@@ -17,41 +17,28 @@ const messageStore = useMessageStore()
 const route = useRoute()
 const router = useRouter()
 const applyingUnfreeze = ref(false)
-const directionContract = 'THESIS: Campus Express is a blue-black campus dispatch desk, not a generic dashboard or decorative relay board. OWN-WORLD: midnight navigation, ice-white work surfaces, one cobalt action signal, precise rules, and restrained blue state tones. STORY: every role sees the current job and the next valid action without visual noise. FIRST VIEWPORT: a command bar, compact work index, clear workspace, and current-action panel establish the task immediately. FORM: Blue Black Dispatch, a distilled operating system for campus service. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance'
+const mobileMenuOpen = ref(false)
+const directionContract = 'THESIS: Campus Express is one continuous campus operations canvas, not a set of disconnected dashboard cards. OWN-WORLD: a full-height pale-blue work index at left, a white daylight workspace at right, thin blue-gray rules, and one restrained cobalt action signal. STORY: each role moves from navigation to task without crossing visual seams or competing panels. FIRST VIEWPORT: the left index is part of the page field; a single white command header names the active page and holds the primary action, while the work surface starts directly below. FORM: Campus Operations Canvas, user-pinned reference composition, seed 75f731a9. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance'
 
 onMounted(() => document.body.prepend(document.createComment(directionContract)))
 
-const roleLabel = computed(() => {
-  if (auth.role === 'admin') return '管理员'
-  if (auth.role === 'runner') return '跑腿员'
-  return '用户'
-})
-
-const roleHint = computed(() => {
-  if (auth.role === 'admin') return '运营与治理工作台'
-  if (auth.role === 'runner') return '校园任务调度中'
-  return '校园服务调度台'
-})
-
+const roleLabel = computed(() => auth.role === 'admin' ? '管理员' : auth.role === 'runner' ? '跑腿员' : '用户')
+const pageTitle = computed(() => String(route.meta.title || (auth.role === 'admin' ? '运营工作台' : '校园服务')))
+const pageDescription = computed(() => auth.role === 'admin' ? '管理校园服务与日常运营' : auth.role === 'runner' ? '处理任务、收益与服务记录' : '发布、追踪并管理你的校园服务')
 const contextAction = computed(() => {
-  if (auth.role === 'admin') return { label: '进入运营概览', to: '/admin/dashboard', note: '查看今日状态与待处理事项' }
-  if (auth.role === 'runner') return { label: '查看可接任务', to: '/tasks', note: '从待处理任务中选择下一单' }
-  return { label: '发布任务', to: '/task/publish', note: '发起一项校园服务请求' }
+  if (auth.role === 'admin') return { label: '运营概览', to: '/admin/dashboard' }
+  if (auth.role === 'runner') return { label: '查看可接任务', to: '/tasks' }
+  return { label: '发布任务', to: '/task/publish' }
 })
-
-const contextSteps = computed(() => {
-  if (auth.role === 'admin') return ['查看运营概览', '处理待审核事项', '跟进异常与反馈']
-  if (auth.role === 'runner') return ['筛选可接任务', '确认取送信息', '完成服务并更新状态']
-  return ['发布一项任务', '查看订单进度', '完成后留下评价']
-})
-
 const frozen = computed(() => auth.isFrozen)
+
 function isActive(prefix: string) { return route.path === prefix || route.path.startsWith(`${prefix}/`) }
 function canShow(roles?: Role[]) { return !roles?.length || roles.includes(auth.role as Role) }
+function closeMobileMenu() { mobileMenuOpen.value = false }
 
 const menuGroups = computed<MenuGroup[]>(() => {
   const adminOnly: MenuGroup[] = [{
-    label: '运营工作台', roles: ['admin'], items: [
+    label: '运营管理', roles: ['admin'], items: [
       { label: '运营概览', to: '/admin/dashboard', roles: ['admin'] },
       { label: '用户管理', to: '/admin/users', roles: ['admin'] },
       { label: '任务治理', to: '/admin/tasks', roles: ['admin'] },
@@ -74,7 +61,7 @@ const menuGroups = computed<MenuGroup[]>(() => {
       { label: '系统配置', to: '/admin/config', roles: ['admin'] },
     ],
   }]
-  const account: MenuGroup[] = [{ label: '我的账户', items: [{ label: '个人资料', to: '/profile' }] }]
+  const account: MenuGroup[] = [{ label: '账户', items: [{ label: '个人资料', to: '/profile' }] }]
   if (auth.role === 'admin') return [...adminOnly, ...account]
 
   const common: MenuGroup[] = [
@@ -83,7 +70,7 @@ const menuGroups = computed<MenuGroup[]>(() => {
       { label: '我的订单', to: '/orders' },
       { label: `我的消息${messageStore.unreadCount ? ` · ${messageStore.unreadCount > 99 ? '99+' : messageStore.unreadCount}` : ''}`, to: '/messages' },
     ] },
-    { label: '我的服务记录', items: [{ label: '我的评价', to: '/reviews' }] },
+    { label: '服务记录', items: [{ label: '我的评价', to: '/reviews' }] },
     { label: '资金与权益', items: [{ label: '钱包流水', to: '/wallet/logs' }, { label: '我的优惠券', to: '/coupon' }] },
     ...account,
   ]
@@ -110,133 +97,98 @@ async function onApplyUnfreeze() {
 </script>
 
 <template>
-  <!-- THESIS: Campus Express is a blue-black campus dispatch desk, not a generic dashboard or decorative relay board. OWN-WORLD: midnight navigation, ice-white work surfaces, one cobalt action signal, precise rules, and restrained blue state tones. STORY: every role sees the current job and the next valid action without visual noise. FIRST VIEWPORT: a command bar, compact work index, clear workspace, and current-action panel establish the task immediately. FORM: Blue Black Dispatch, a distilled operating system for campus service. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance -->
-  <div class="relay-app">
-    <header class="relay-topbar">
-      <div class="relay-topbar__inner">
-        <RouterLink class="relay-brand" to="/tasks" aria-label="Campus Express 任务大厅">
-          <span class="relay-brand__mark">CE</span>
-          <span class="relay-brand__words"><strong>Campus Express</strong><small>校园服务调度台</small></span>
+  <!-- THESIS: Campus Express is one continuous campus operations canvas, not a set of disconnected dashboard cards. OWN-WORLD: a full-height pale-blue work index at left, a white daylight workspace at right, thin blue-gray rules, and one restrained cobalt action signal. STORY: each role moves from navigation to task without crossing visual seams or competing panels. FIRST VIEWPORT: the left index is part of the page field; a single white command header names the active page and holds the primary action, while the work surface starts directly below. FORM: Campus Operations Canvas, user-pinned reference composition, seed 75f731a9. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance -->
+  <div class="workspace-app">
+    <aside class="workspace-sidebar" :class="{ 'is-open': mobileMenuOpen }" aria-label="主导航">
+      <div class="workspace-sidebar__brand">
+        <RouterLink class="workspace-brand" to="/tasks" aria-label="Campus Express 任务大厅" @click="closeMobileMenu">
+          <span class="workspace-brand__mark">CE</span>
+          <span><strong>Campus Express</strong><small>校园服务平台</small></span>
         </RouterLink>
+      </div>
 
-        <button class="relay-menu-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#ceNavbar" aria-controls="ceNavbar" aria-expanded="false" aria-label="展开导航">
-          <span /><span /><span />
-        </button>
+      <nav class="workspace-menu">
+        <section v-for="group in menuGroups" :key="group.label" v-show="canShow(group.roles)" class="workspace-menu__group">
+          <div class="workspace-menu__label">{{ group.label }}</div>
+          <template v-for="item in group.items" :key="item.to">
+            <RouterLink v-if="canShow(item.roles)" class="workspace-menu__link" :class="{ active: isActive(item.to) }" :to="item.to" @click="closeMobileMenu">
+              <span class="workspace-menu__dot" aria-hidden="true" />
+              <span>{{ item.label }}</span>
+            </RouterLink>
+          </template>
+        </section>
+      </nav>
 
-        <div id="ceNavbar" class="collapse relay-topbar__actions">
-          <div class="relay-status"><span class="relay-status__dot" aria-hidden="true" />{{ roleHint }}</div>
-          <span class="relay-role">{{ roleLabel }}</span>
+      <div class="workspace-sidebar__account">
+        <div class="workspace-account__avatar">{{ auth.displayName?.slice(0, 1) || 'C' }}</div>
+        <div><strong>{{ auth.displayName || 'Campus Express' }}</strong><span>{{ roleLabel }}</span></div>
+        <div class="dropup ms-auto">
+          <button class="workspace-account__more" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="账户操作"><span /><span /><span /></button>
+          <ul class="dropdown-menu dropdown-menu-end workspace-dropdown">
+            <li><RouterLink class="dropdown-item" to="/profile">个人资料</RouterLink></li>
+            <li><RouterLink class="dropdown-item" to="/wallet/logs">钱包流水</RouterLink></li>
+            <li><hr class="dropdown-divider" /></li>
+            <li><button class="dropdown-item workspace-dropdown__logout" type="button" @click="onLogout">退出登录</button></li>
+          </ul>
+        </div>
+      </div>
+    </aside>
+
+    <div class="workspace-main">
+      <header class="workspace-header">
+        <button class="workspace-menu-toggle" type="button" aria-label="打开导航" @click="mobileMenuOpen = !mobileMenuOpen"><span /><span /><span /></button>
+        <div class="workspace-heading"><h1>{{ pageTitle }}</h1><p>{{ pageDescription }}</p></div>
+        <div class="workspace-header__actions">
+          <RouterLink class="btn btn-primary workspace-primary-action" :to="contextAction.to">{{ contextAction.label }}</RouterLink>
+          <span class="workspace-role">{{ roleLabel }}</span>
           <div class="dropdown">
-            <button class="relay-account" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-              <span class="relay-account__avatar">{{ auth.displayName?.slice(0, 1) || 'C' }}</span>
-              <span class="relay-account__name">{{ auth.displayName }}</span>
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end relay-dropdown">
+            <button class="workspace-user" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="打开账户菜单">{{ auth.displayName?.slice(0, 1) || 'C' }}</button>
+            <ul class="dropdown-menu dropdown-menu-end workspace-dropdown">
               <li><RouterLink class="dropdown-item" to="/profile">个人资料</RouterLink></li>
-              <li><RouterLink class="dropdown-item" to="/wallet/logs">钱包流水</RouterLink></li>
               <li><RouterLink class="dropdown-item" to="/reviews">我的评价</RouterLink></li>
               <li><hr class="dropdown-divider" /></li>
-              <li><button class="dropdown-item relay-dropdown__logout" type="button" @click="onLogout">退出登录</button></li>
+              <li><button class="dropdown-item workspace-dropdown__logout" type="button" @click="onLogout">退出登录</button></li>
             </ul>
           </div>
         </div>
-      </div>
-    </header>
+      </header>
 
-    <main class="relay-main">
-      <div class="relay-shell">
-        <aside class="relay-rail">
-          <div class="relay-rail__summary">
-            <span class="relay-rail__signal" aria-hidden="true"><i /><i /><i /></span>
-            <div><strong>{{ roleLabel }}索引</strong><span>选择当前要处理的工作</span></div>
-          </div>
-          <nav class="relay-menu" aria-label="主导航">
-            <section v-for="group in menuGroups" :key="group.label" v-show="canShow(group.roles)" class="relay-menu__group">
-              <div class="relay-menu__label">{{ group.label }}</div>
-              <template v-for="item in group.items" :key="item.to">
-                <RouterLink v-if="canShow(item.roles)" class="relay-menu__link" :class="{ active: isActive(item.to) }" :to="item.to">
-                  <span class="relay-menu__node" aria-hidden="true" />
-                  <span>{{ item.label }}</span>
-                </RouterLink>
-              </template>
-            </section>
-          </nav>
-          <div class="relay-mobile-hint">左右滑动查看全部路线</div>
-        </aside>
-
-        <section class="relay-content">
-          <div v-if="frozen" class="relay-freeze" role="alert">
+      <main class="workspace-stage">
+        <section class="workspace-content">
+          <div v-if="frozen" class="workspace-freeze" role="alert">
             <div><strong>账户当前处于限制状态</strong><span>你可以正常登录，但发布、抢单与发送消息等操作暂不可用。</span></div>
             <button class="btn btn-primary btn-sm" type="button" :disabled="applyingUnfreeze" @click="onApplyUnfreeze">申请解封</button>
           </div>
           <RouterView />
         </section>
+      </main>
 
-        <aside class="relay-context">
-          <div class="relay-context__top"><h2>当前动作</h2><p>{{ contextAction.note }}</p></div>
-          <RouterLink class="btn btn-primary relay-context__action" :to="contextAction.to">{{ contextAction.label }}</RouterLink>
-          <ol class="relay-context__steps">
-            <li v-for="(step, index) in contextSteps" :key="step"><span>{{ index + 1 }}</span><div>{{ step }}</div></li>
-          </ol>
-          <RouterLink class="relay-context__link" to="/orders">查看我的订单</RouterLink>
-        </aside>
-      </div>
-    </main>
+      <footer class="workspace-footer"><span>Campus Express · 校园服务平台</span><span>任务清晰，行动直接</span></footer>
+    </div>
 
+    <button v-if="mobileMenuOpen" class="workspace-backdrop" type="button" aria-label="关闭导航" @click="closeMobileMenu" />
     <CouponNotification v-if="auth.role !== 'admin'" />
-    <footer class="relay-footer"><span>Campus Express · 校园服务调度台</span><span>任务清晰，行动直接</span></footer>
   </div>
 </template>
 
 <style scoped>
-.relay-app { min-height: 100vh; }
-.relay-topbar { position: sticky; z-index: 1020; top: 0; border-bottom: 1px solid rgba(188, 208, 245, 0.18); background: var(--color-navy); color: #fff; }
-.relay-topbar__inner { display: flex; width: min(1480px, calc(100% - 40px)); min-height: 72px; align-items: center; gap: 24px; margin: 0 auto; }
-.relay-brand { display: inline-flex; min-width: max-content; align-items: center; gap: 11px; color: inherit; }
-.relay-brand:hover { color: inherit; text-decoration: none; }
-.relay-brand__mark { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 6px; background: var(--color-primary); color: #fff; font-size: 13px; font-weight: 850; letter-spacing: .03em; }
-.relay-brand__words { display: grid; gap: 1px; line-height: 1.1; }
-.relay-brand__words strong { font-size: 16px; letter-spacing: -0.025em; }
-.relay-brand__words small { color: rgba(220, 230, 249, 0.66); font-size: 11px; }
-.relay-topbar__actions { display: flex; flex: 1; align-items: center; justify-content: flex-end; gap: 16px; }
-.relay-status { display: inline-flex; align-items: center; gap: 8px; color: rgba(220, 230, 249, 0.72); font-size: 12px; }
-.relay-status__dot { width: 8px; height: 8px; border-radius: 50%; background: #6d9cff; }
-.relay-role { padding: 5px 9px; border: 1px solid rgba(188, 208, 245, 0.3); border-radius: var(--radius-pill); color: #b9ceff; font-size: 12px; font-weight: 750; }
-.relay-account { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 6px; padding: 5px 7px; background: transparent; color: #fff; font-weight: 700; }
-.relay-account:hover { background: rgba(255, 255, 255, 0.1); }
-.relay-account__avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 6px; background: #b9ceff; color: var(--color-navy); font-size: 13px; font-weight: 850; }
-.relay-account__name { max-width: 128px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.relay-dropdown { min-width: 176px; padding: 8px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); box-shadow: var(--shadow-md); }
-.relay-dropdown .dropdown-item { border-radius: 7px; padding: 9px 10px; color: var(--color-text-secondary); font-size: 13px; font-weight: 650; }
-.relay-dropdown .dropdown-item:hover { background: var(--color-fill); color: var(--color-text); }
-.relay-dropdown__logout { color: var(--color-primary) !important; }
-.relay-menu-toggle { display: none; margin-left: auto; border: 0; padding: 7px; background: transparent; }
-.relay-menu-toggle span { display: block; width: 22px; height: 2px; margin: 4px; border-radius: 99px; background: #fff; }
-.relay-main { width: min(1480px, calc(100% - 40px)); margin: 0 auto; padding: 26px 0 44px; }
-.relay-shell { display: grid; grid-template-columns: 242px minmax(0, 1fr) 216px; align-items: start; gap: 28px; }
-.relay-rail { position: sticky; top: 98px; overflow: hidden; border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-surface); }
-.relay-rail__summary { display: flex; align-items: center; gap: 11px; padding: 18px; border-bottom: 1px solid var(--color-border); background: var(--color-navy); }
-.relay-rail__summary strong, .relay-rail__summary span { display: block; }
-.relay-rail__summary strong { color: #fff; font-size: 13px; }
-.relay-rail__summary span:last-child { margin-top: 3px; color: rgba(220, 230, 249, .66); font-size: 11px; line-height: 1.45; }
-.relay-rail__signal { display: flex !important; width: 28px; flex: 0 0 28px; align-items: end; gap: 3px; }
-.relay-rail__signal i { display: block; width: 7px; border-radius: 1px 1px 0 0; background: #6d9cff; }
-.relay-rail__signal i:nth-child(1) { height: 10px; background: #b9ceff; }.relay-rail__signal i:nth-child(2) { height: 19px; background: var(--color-primary); }.relay-rail__signal i:nth-child(3) { height: 14px; }
-.relay-menu { max-height: calc(100vh - 154px); overflow: auto; padding: 13px 10px 16px; }
-.relay-menu__group + .relay-menu__group { margin-top: 20px; }
-.relay-menu__label { margin: 0 7px 7px; color: var(--color-text-muted); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
-.relay-menu__link { position: relative; display: flex; min-height: 36px; align-items: center; gap: 10px; border-radius: 6px; padding: 7px 8px; color: var(--color-text-secondary); font-size: 13px; font-weight: 650; }
-.relay-menu__link:hover { background: var(--color-fill); color: var(--color-navy); text-decoration: none; }
-.relay-menu__link.active { background: var(--color-navy); color: #fff; }
-.relay-menu__node { width: 7px; height: 7px; flex: 0 0 7px; border: 1.5px solid currentColor; border-radius: 50%; opacity: .72; }
-.relay-menu__link.active .relay-menu__node { border-color: #fff; background: var(--color-primary); box-shadow: none; }
-.relay-mobile-hint { display: none; }
-.relay-content { min-width: 0; }
-.relay-context { position: sticky; top: 98px; border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 18px; background: var(--color-surface); }.relay-context__top { padding-bottom: 14px; border-bottom: 1px solid var(--color-border); }.relay-context h2 { margin: 0; color: var(--color-navy); font-size: 16px; }.relay-context p { margin: 6px 0 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.55; }.relay-context__action { display: block; width: 100%; margin: 15px 0 17px; text-align: center; }.relay-context__steps { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }.relay-context__steps li { display: flex; align-items: flex-start; gap: 9px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.45; }.relay-context__steps span { display: grid; width: 19px; height: 19px; flex: 0 0 19px; place-items: center; border-radius: 50%; background: var(--color-fill-strong); color: var(--color-navy); font-size: 10px; font-weight: 850; }.relay-context__steps li:first-child span { background: var(--color-primary); color: #fff; }.relay-context__link { display: inline-block; margin-top: 17px; border-bottom: 1px solid var(--color-primary); color: var(--color-primary); font-size: 12px; font-weight: 750; }
-.relay-freeze { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; padding: 14px 16px; border: 1px solid #9bb8ef; border-radius: var(--radius-button); background: var(--color-warning-soft); }
-.relay-freeze strong, .relay-freeze span { display: block; }.relay-freeze strong { color: var(--color-navy); font-size: 14px; }.relay-freeze span { margin-top: 2px; color: var(--color-text-secondary); font-size: 12px; }
-.relay-footer { display: flex; width: min(1480px, calc(100% - 40px)); justify-content: space-between; gap: 16px; margin: 0 auto; padding: 18px 0 28px; border-top: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 12px; }
-@media (max-width: 1199.98px) { .relay-shell { grid-template-columns: 222px minmax(0, 1fr); }.relay-context { display: none; } }
-@media (max-width: 991.98px) { .relay-topbar__inner, .relay-main, .relay-footer { width: min(100% - 28px, 820px); }.relay-menu-toggle { display: block; }.relay-topbar__actions { display: none; width: 100%; flex-basis: 100%; justify-content: flex-start; padding: 0 0 14px; }.relay-topbar__actions.show { display: flex; }.relay-shell { grid-template-columns: 1fr; gap: 18px; }.relay-rail { position: static; }.relay-menu { display: grid; max-height: none; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 20px; }.relay-menu__group + .relay-menu__group { margin-top: 0; }.relay-menu__label { margin-top: 6px; }.relay-rail__summary { padding: 14px 16px; } }
-@media (max-width: 575.98px) { .relay-topbar__inner { min-height: 62px; gap: 10px; }.relay-brand__words small, .relay-status, .relay-role, .relay-account__name { display: none; }.relay-topbar__actions { justify-content: flex-end; }.relay-rail { overflow: visible; border: 0; border-radius: 0; background: transparent; }.relay-rail__summary, .relay-menu__label { display: none; }.relay-menu { display: flex; max-height: none; overflow-x: auto; gap: 8px; padding: 0 0 2px; scrollbar-width: none; }.relay-menu::-webkit-scrollbar { display: none; }.relay-menu__group { display: contents; }.relay-menu__link { min-height: 38px; flex: 0 0 auto; border: 1px solid var(--color-border); background: var(--color-surface); padding: 7px 11px; }.relay-menu__link.active { border-color: var(--color-primary); }.relay-mobile-hint { display: block; margin: 7px 2px 0; color: var(--color-text-muted); font-size: 11px; }.relay-main { padding-top: 16px; }.relay-footer { align-items: flex-start; flex-direction: column; padding-top: 16px; }.relay-freeze { align-items: flex-start; flex-direction: column; }.relay-content :deep(.p-4) { padding: 0 !important; } }
+.workspace-app { display: grid; min-height: 100vh; grid-template-columns: 260px minmax(0, 1fr); background: var(--color-canvas); }
+.workspace-sidebar { z-index: 1030; display: flex; min-height: 100vh; flex-direction: column; border-right: 1px solid var(--color-sidebar-rule); background: var(--color-sidebar); }
+.workspace-sidebar__brand { display: flex; min-height: 108px; align-items: center; padding: 0 28px; border-bottom: 1px solid var(--color-sidebar-rule); }
+.workspace-brand { display: inline-flex; align-items: center; gap: 11px; color: var(--color-navy); text-decoration: none; }.workspace-brand:hover { color: var(--color-navy); }
+.workspace-brand__mark { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 9px; background: var(--color-primary); color: #fff; font-size: 13px; font-weight: 850; letter-spacing: .02em; }
+.workspace-brand > span:last-child { display: grid; gap: 1px; }.workspace-brand strong { font-size: 17px; letter-spacing: -.03em; }.workspace-brand small { color: var(--color-text-muted); font-size: 11px; }
+.workspace-menu { flex: 1; overflow: auto; padding: 24px 14px 18px; }.workspace-menu__group + .workspace-menu__group { margin-top: 25px; }
+.workspace-menu__label { margin: 0 12px 8px; color: #7890ae; font-size: 11px; font-weight: 800; letter-spacing: .05em; }
+.workspace-menu__link { display: flex; min-height: 42px; align-items: center; gap: 11px; border-radius: 8px; padding: 9px 12px; color: #35506f; font-size: 14px; font-weight: 680; transition: background-color var(--transition-fast), color var(--transition-fast); }
+.workspace-menu__link:hover { background: rgba(255,255,255,.56); color: var(--color-navy); text-decoration: none; }.workspace-menu__link.active { background: #fff; color: var(--color-primary); box-shadow: var(--shadow-sm); }
+.workspace-menu__dot { width: 7px; height: 7px; flex: 0 0 7px; border: 1.5px solid currentColor; border-radius: 50%; opacity: .72; }.workspace-menu__link.active .workspace-menu__dot { border-color: var(--color-primary); background: var(--color-primary); opacity: 1; }
+.workspace-sidebar__account { display: flex; min-height: 82px; align-items: center; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--color-sidebar-rule); }.workspace-account__avatar { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border-radius: 50%; background: #cbdfff; color: var(--color-primary-active); font-size: 13px; font-weight: 850; }.workspace-sidebar__account strong, .workspace-sidebar__account span { display: block; }.workspace-sidebar__account strong { max-width: 118px; overflow: hidden; color: var(--color-navy); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.workspace-sidebar__account span { margin-top: 1px; color: var(--color-text-muted); font-size: 11px; }.workspace-account__more { display: flex; align-items: center; gap: 3px; border: 0; border-radius: 6px; padding: 8px 5px; background: transparent; }.workspace-account__more span { width: 3px; height: 3px; border-radius: 50%; background: #5d7595; }.workspace-account__more:hover { background: rgba(255,255,255,.65); }
+.workspace-main { display: grid; min-width: 0; grid-template-rows: auto 1fr auto; background: var(--color-canvas); }.workspace-header { position: sticky; z-index: 1020; top: 0; display: flex; min-height: 108px; align-items: center; gap: 24px; border-bottom: 1px solid var(--color-border); padding: 20px 38px; background: rgba(255,255,255,.97); }.workspace-heading { min-width: 0; }.workspace-heading h1 { margin: 0; color: var(--color-navy); font-size: clamp(26px, 2.25vw, 34px); letter-spacing: -.035em; }.workspace-heading p { margin: 5px 0 0; color: var(--color-text-muted); font-size: 14px; }.workspace-header__actions { display: flex; align-items: center; gap: 13px; margin-left: auto; }.workspace-primary-action { min-width: 106px; }.workspace-role { border: 1px solid var(--color-border); border-radius: var(--radius-pill); padding: 5px 9px; color: var(--color-text-secondary); font-size: 12px; font-weight: 720; }.workspace-user { display: grid; width: 36px; height: 36px; place-items: center; border: 0; border-radius: 50%; background: var(--color-navy); color: #fff; font-size: 13px; font-weight: 850; }.workspace-user:hover { background: var(--color-primary); }.workspace-menu-toggle { display: none; border: 0; padding: 7px; background: transparent; }.workspace-menu-toggle span { display: block; width: 22px; height: 2px; margin: 4px; border-radius: 99px; background: var(--color-navy); }
+.workspace-stage { min-width: 0; padding: 34px 38px 48px; background: var(--color-canvas); }.workspace-content { width: min(100%, 1540px); margin: 0 auto; }.workspace-content :deep(.p-4) { padding: 0 !important; }
+.workspace-freeze { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 20px; border: 1px solid #9ebdf1; border-radius: var(--radius-card); padding: 14px 16px; background: #edf5ff; }.workspace-freeze strong, .workspace-freeze span { display: block; }.workspace-freeze strong { color: var(--color-navy); font-size: 14px; }.workspace-freeze span { margin-top: 2px; color: var(--color-text-secondary); font-size: 12px; }
+.workspace-footer { display: flex; justify-content: space-between; gap: 16px; border-top: 1px solid var(--color-border); padding: 19px 38px 24px; color: var(--color-text-muted); font-size: 12px; }.workspace-dropdown { min-width: 168px; padding: 7px; border: 1px solid var(--color-border); border-radius: 10px; background: #fff; box-shadow: var(--shadow-md); }.workspace-dropdown .dropdown-item { border-radius: 6px; padding: 8px 10px; color: var(--color-text-secondary); font-size: 13px; font-weight: 650; }.workspace-dropdown .dropdown-item:hover { background: var(--color-fill); color: var(--color-navy); }.workspace-dropdown__logout { color: var(--color-primary) !important; }
+.workspace-backdrop { display: none; }
+@media (max-width: 991.98px) { .workspace-app { display: block; }.workspace-sidebar { position: fixed; z-index: 1050; top: 0; bottom: 0; left: 0; width: min(284px, 82vw); min-height: 0; transform: translateX(-102%); transition: transform var(--transition); box-shadow: var(--shadow-lg); }.workspace-sidebar.is-open { transform: translateX(0); }.workspace-backdrop { position: fixed; z-index: 1040; inset: 0; display: block; border: 0; background: rgba(8,17,32,.22); }.workspace-menu-toggle { display: block; }.workspace-header { min-height: 78px; gap: 11px; padding: 15px 20px; }.workspace-heading h1 { font-size: 24px; }.workspace-heading p { display: none; }.workspace-stage { padding: 24px 20px 36px; }.workspace-footer { padding: 18px 20px 22px; }.workspace-freeze { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 575.98px) { .workspace-header { gap: 6px; padding: 14px; }.workspace-heading h1 { font-size: 21px; }.workspace-header__actions { gap: 8px; }.workspace-primary-action { min-width: auto; padding-right: 10px; padding-left: 10px; font-size: 12px; }.workspace-role { display: none; }.workspace-user { width: 32px; height: 32px; }.workspace-stage { padding: 18px 14px 30px; }.workspace-footer { align-items: flex-start; flex-direction: column; padding: 16px 14px 22px; }.workspace-content :deep(.p-4) { padding: 0 !important; } }
 </style>
