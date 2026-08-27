@@ -70,6 +70,8 @@ const menuGroups = computed<MenuGroup[]>(() => {
     { label: '任务与订单', items: [
       { label: '任务大厅', to: '/tasks' },
       { label: '我的订单', to: '/orders' },
+      { label: '食堂点餐', to: '/food' },
+      { label: '外卖订单', to: '/food/orders' },
       { label: `我的消息${messageStore.unreadCount ? ` · ${messageStore.unreadCount > 99 ? '99+' : messageStore.unreadCount}` : ''}`, to: '/messages' },
     ] },
     { label: '服务记录', items: [{ label: '我的评价', to: '/reviews' }] },

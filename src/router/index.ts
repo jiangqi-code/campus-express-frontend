@@ -166,6 +166,24 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '钱包流水' },
       },
       {
+        path: 'food',
+        name: 'food-home',
+        component: () => import('@/views/food/FoodHome.vue'),
+        meta: { title: '食堂点餐' },
+      },
+      {
+        path: 'food/merchant/:id',
+        name: 'food-shop',
+        component: () => import('@/views/food/FoodShop.vue'),
+        meta: { title: '商家菜单' },
+      },
+      {
+        path: 'food/orders',
+        name: 'food-orders',
+        component: () => import('@/views/food/FoodOrders.vue'),
+        meta: { title: '我的外卖订单' },
+      },
+      {
         path: 'food/merchant',
         name: 'food-merchant',
         component: () => import('@/views/food/MerchantCenter.vue'),
