@@ -1728,7 +1728,7 @@ async function onMarkDelivered(o: OrderRow) {
 .runner-status-step { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 4px; color: var(--color-text-disabled); font-size: 12px; text-align: center; }
 .runner-step-dot { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 50%; background: var(--color-fill-strong); color: var(--color-text-muted); font-weight: 700; }
 .runner-status-step.active { color: var(--color-primary); font-weight: 700; }
-.runner-status-step.active .runner-step-dot { background: var(--color-primary); color: #fffdf8; }
+.runner-status-step.active .runner-step-dot { background: var(--color-primary); color: #fff; }
 .review-order-summary { padding: 14px 16px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-fill); }
 
 .mini-route {
@@ -1750,7 +1750,7 @@ async function onMarkDelivered(o: OrderRow) {
 .mini-dot.start { border-color: var(--color-success); }
 .mini-dot.end { border-color: var(--color-primary); }
 
-.mini-line { position: relative; height: 2px; background: linear-gradient(90deg, var(--color-success), var(--color-primary)); flex: 1 1 auto; border-radius: 999px; }
+.mini-line { position: relative; height: 2px; background: var(--color-primary); flex: 1 1 auto; border-radius: 999px; }
 
-.mini-runner { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 10px; height: 10px; border: 2px solid #fffdf8; border-radius: 999px; background: var(--color-mustard); box-shadow: 0 2px 10px rgba(185, 130, 22, .3); }
+.mini-runner { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 10px; height: 10px; border: 2px solid #fff; border-radius: 999px; background: var(--color-primary); box-shadow: 0 2px 10px rgba(20, 87, 217, .3); }
 </style>

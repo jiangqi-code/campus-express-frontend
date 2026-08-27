@@ -17,7 +17,7 @@ const messageStore = useMessageStore()
 const route = useRoute()
 const router = useRouter()
 const applyingUnfreeze = ref(false)
-const directionContract = 'THESIS: Campus Express is a precise campus relay board, not a generic dashboard. OWN-WORLD: deep ink navigation, warm paper surfaces, coral actions, mustard attention, and teal completion markers connected by route lines. STORY: every role sees the current handoff and its next action. FIRST VIEWPORT: a dark utility bar leads into a three-part relay shell—route rail, work surface, and live context—where the primary action sits at the top of the active route. FORM: Campus Relay Board, direction 5, seed 43d60da0. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance'
+const directionContract = 'THESIS: Campus Express is a blue-black campus dispatch desk, not a generic dashboard or decorative relay board. OWN-WORLD: midnight navigation, ice-white work surfaces, one cobalt action signal, precise rules, and restrained blue state tones. STORY: every role sees the current job and the next valid action without visual noise. FIRST VIEWPORT: a command bar, compact work index, clear workspace, and current-action panel establish the task immediately. FORM: Blue Black Dispatch, a distilled operating system for campus service. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance'
 
 onMounted(() => document.body.prepend(document.createComment(directionContract)))
 
@@ -29,20 +29,20 @@ const roleLabel = computed(() => {
 
 const roleHint = computed(() => {
   if (auth.role === 'admin') return '运营与治理工作台'
-  if (auth.role === 'runner') return '接力中的校园服务'
-  return '校园服务，从这里出发'
+  if (auth.role === 'runner') return '校园任务调度中'
+  return '校园服务调度台'
 })
 
 const contextAction = computed(() => {
-  if (auth.role === 'admin') return { label: '进入运营概览', to: '/admin/dashboard', note: '先看今天的运营状态与待处理事项' }
-  if (auth.role === 'runner') return { label: '查看可接任务', to: '/tasks', note: '从待接力任务中选择下一单' }
-  return { label: '发布任务', to: '/task/publish', note: '把你的需求送上校园服务路线' }
+  if (auth.role === 'admin') return { label: '进入运营概览', to: '/admin/dashboard', note: '查看今日状态与待处理事项' }
+  if (auth.role === 'runner') return { label: '查看可接任务', to: '/tasks', note: '从待处理任务中选择下一单' }
+  return { label: '发布任务', to: '/task/publish', note: '发起一项校园服务请求' }
 })
 
 const contextSteps = computed(() => {
   if (auth.role === 'admin') return ['查看运营概览', '处理待审核事项', '跟进异常与反馈']
-  if (auth.role === 'runner') return ['筛选可接任务', '确认取送信息', '完成交接并更新状态']
-  return ['发布一项任务', '查看订单交接进度', '完成后留下评价']
+  if (auth.role === 'runner') return ['筛选可接任务', '确认取送信息', '完成服务并更新状态']
+  return ['发布一项任务', '查看订单进度', '完成后留下评价']
 })
 
 const frozen = computed(() => auth.isFrozen)
@@ -110,13 +110,13 @@ async function onApplyUnfreeze() {
 </script>
 
 <template>
-  <!-- THESIS: Campus Express is a precise campus relay board, not a generic dashboard. OWN-WORLD: deep ink navigation, warm paper surfaces, coral actions, mustard attention, and teal completion markers connected by route lines. STORY: every role sees the current handoff and its next action. FIRST VIEWPORT: a dark utility bar leads into a three-part relay shell—route rail, work surface, and live context—where the primary action sits at the top of the active route. FORM: Campus Relay Board, direction 5, seed 43d60da0. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance -->
+  <!-- THESIS: Campus Express is a blue-black campus dispatch desk, not a generic dashboard or decorative relay board. OWN-WORLD: midnight navigation, ice-white work surfaces, one cobalt action signal, precise rules, and restrained blue state tones. STORY: every role sees the current job and the next valid action without visual noise. FIRST VIEWPORT: a command bar, compact work index, clear workspace, and current-action panel establish the task immediately. FORM: Blue Black Dispatch, a distilled operating system for campus service. FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance -->
   <div class="relay-app">
     <header class="relay-topbar">
       <div class="relay-topbar__inner">
         <RouterLink class="relay-brand" to="/tasks" aria-label="Campus Express 任务大厅">
           <span class="relay-brand__mark">CE</span>
-          <span class="relay-brand__words"><strong>Campus Express</strong><small>校园服务接力站</small></span>
+          <span class="relay-brand__words"><strong>Campus Express</strong><small>校园服务调度台</small></span>
         </RouterLink>
 
         <button class="relay-menu-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#ceNavbar" aria-controls="ceNavbar" aria-expanded="false" aria-label="展开导航">
@@ -148,7 +148,7 @@ async function onApplyUnfreeze() {
         <aside class="relay-rail">
           <div class="relay-rail__summary">
             <span class="relay-rail__signal" aria-hidden="true"><i /><i /><i /></span>
-            <div><strong>{{ roleLabel }}路线</strong><span>从这里继续下一段服务</span></div>
+            <div><strong>{{ roleLabel }}索引</strong><span>选择当前要处理的工作</span></div>
           </div>
           <nav class="relay-menu" aria-label="主导航">
             <section v-for="group in menuGroups" :key="group.label" v-show="canShow(group.roles)" class="relay-menu__group">
@@ -173,7 +173,7 @@ async function onApplyUnfreeze() {
         </section>
 
         <aside class="relay-context">
-          <div class="relay-context__top"><h2>下一段服务</h2><p>{{ contextAction.note }}</p></div>
+          <div class="relay-context__top"><h2>当前动作</h2><p>{{ contextAction.note }}</p></div>
           <RouterLink class="btn btn-primary relay-context__action" :to="contextAction.to">{{ contextAction.label }}</RouterLink>
           <ol class="relay-context__steps">
             <li v-for="(step, index) in contextSteps" :key="step"><span>{{ index + 1 }}</span><div>{{ step }}</div></li>
@@ -184,57 +184,57 @@ async function onApplyUnfreeze() {
     </main>
 
     <CouponNotification v-if="auth.role !== 'admin'" />
-    <footer class="relay-footer"><span>Campus Express · 校园服务接力站</span><span>让每一次托付都有清晰去向</span></footer>
+    <footer class="relay-footer"><span>Campus Express · 校园服务调度台</span><span>任务清晰，行动直接</span></footer>
   </div>
 </template>
 
 <style scoped>
 .relay-app { min-height: 100vh; }
-.relay-topbar { position: sticky; z-index: 1020; top: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.14); background: var(--color-navy); color: #fffdf8; }
+.relay-topbar { position: sticky; z-index: 1020; top: 0; border-bottom: 1px solid rgba(188, 208, 245, 0.18); background: var(--color-navy); color: #fff; }
 .relay-topbar__inner { display: flex; width: min(1480px, calc(100% - 40px)); min-height: 72px; align-items: center; gap: 24px; margin: 0 auto; }
 .relay-brand { display: inline-flex; min-width: max-content; align-items: center; gap: 11px; color: inherit; }
 .relay-brand:hover { color: inherit; text-decoration: none; }
-.relay-brand__mark { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 12px 12px 12px 4px; background: var(--color-primary); color: #fffdf8; font-size: 13px; font-weight: 850; letter-spacing: .03em; }
+.relay-brand__mark { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 6px; background: var(--color-primary); color: #fff; font-size: 13px; font-weight: 850; letter-spacing: .03em; }
 .relay-brand__words { display: grid; gap: 1px; line-height: 1.1; }
 .relay-brand__words strong { font-size: 16px; letter-spacing: -0.025em; }
-.relay-brand__words small { color: rgba(255, 253, 248, 0.66); font-size: 11px; }
+.relay-brand__words small { color: rgba(220, 230, 249, 0.66); font-size: 11px; }
 .relay-topbar__actions { display: flex; flex: 1; align-items: center; justify-content: flex-end; gap: 16px; }
-.relay-status { display: inline-flex; align-items: center; gap: 8px; color: rgba(255, 253, 248, 0.72); font-size: 12px; }
-.relay-status__dot { width: 8px; height: 8px; border-radius: 50%; background: #4cb19b; box-shadow: 0 0 0 4px rgba(76, 177, 155, 0.15); }
-.relay-role { padding: 5px 9px; border: 1px solid rgba(255, 253, 248, 0.23); border-radius: var(--radius-pill); color: #f7bf4f; font-size: 12px; font-weight: 750; }
-.relay-account { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 10px; padding: 5px 7px; background: transparent; color: #fffdf8; font-weight: 700; }
+.relay-status { display: inline-flex; align-items: center; gap: 8px; color: rgba(220, 230, 249, 0.72); font-size: 12px; }
+.relay-status__dot { width: 8px; height: 8px; border-radius: 50%; background: #6d9cff; }
+.relay-role { padding: 5px 9px; border: 1px solid rgba(188, 208, 245, 0.3); border-radius: var(--radius-pill); color: #b9ceff; font-size: 12px; font-weight: 750; }
+.relay-account { display: inline-flex; align-items: center; gap: 8px; border: 0; border-radius: 6px; padding: 5px 7px; background: transparent; color: #fff; font-weight: 700; }
 .relay-account:hover { background: rgba(255, 255, 255, 0.1); }
-.relay-account__avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 9px 9px 9px 3px; background: #f7bf4f; color: var(--color-navy); font-size: 13px; font-weight: 850; }
+.relay-account__avatar { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 6px; background: #b9ceff; color: var(--color-navy); font-size: 13px; font-weight: 850; }
 .relay-account__name { max-width: 128px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .relay-dropdown { min-width: 176px; padding: 8px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-surface); box-shadow: var(--shadow-md); }
 .relay-dropdown .dropdown-item { border-radius: 7px; padding: 9px 10px; color: var(--color-text-secondary); font-size: 13px; font-weight: 650; }
 .relay-dropdown .dropdown-item:hover { background: var(--color-fill); color: var(--color-text); }
 .relay-dropdown__logout { color: var(--color-primary) !important; }
 .relay-menu-toggle { display: none; margin-left: auto; border: 0; padding: 7px; background: transparent; }
-.relay-menu-toggle span { display: block; width: 22px; height: 2px; margin: 4px; border-radius: 99px; background: #fffdf8; }
+.relay-menu-toggle span { display: block; width: 22px; height: 2px; margin: 4px; border-radius: 99px; background: #fff; }
 .relay-main { width: min(1480px, calc(100% - 40px)); margin: 0 auto; padding: 26px 0 44px; }
 .relay-shell { display: grid; grid-template-columns: 242px minmax(0, 1fr) 216px; align-items: start; gap: 28px; }
 .relay-rail { position: sticky; top: 98px; overflow: hidden; border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-surface); }
-.relay-rail__summary { display: flex; align-items: center; gap: 11px; padding: 18px; border-bottom: 1px solid var(--color-border); background: var(--color-fill); }
+.relay-rail__summary { display: flex; align-items: center; gap: 11px; padding: 18px; border-bottom: 1px solid var(--color-border); background: var(--color-navy); }
 .relay-rail__summary strong, .relay-rail__summary span { display: block; }
-.relay-rail__summary strong { color: var(--color-navy); font-size: 13px; }
-.relay-rail__summary span:last-child { margin-top: 3px; color: var(--color-text-muted); font-size: 11px; line-height: 1.45; }
+.relay-rail__summary strong { color: #fff; font-size: 13px; }
+.relay-rail__summary span:last-child { margin-top: 3px; color: rgba(220, 230, 249, .66); font-size: 11px; line-height: 1.45; }
 .relay-rail__signal { display: flex !important; width: 28px; flex: 0 0 28px; align-items: end; gap: 3px; }
-.relay-rail__signal i { display: block; width: 7px; border-radius: 2px 2px 0 0; background: var(--color-primary); }
-.relay-rail__signal i:nth-child(1) { height: 10px; background: var(--color-success); }.relay-rail__signal i:nth-child(2) { height: 19px; background: var(--color-mustard); }.relay-rail__signal i:nth-child(3) { height: 14px; }
+.relay-rail__signal i { display: block; width: 7px; border-radius: 1px 1px 0 0; background: #6d9cff; }
+.relay-rail__signal i:nth-child(1) { height: 10px; background: #b9ceff; }.relay-rail__signal i:nth-child(2) { height: 19px; background: var(--color-primary); }.relay-rail__signal i:nth-child(3) { height: 14px; }
 .relay-menu { max-height: calc(100vh - 154px); overflow: auto; padding: 13px 10px 16px; }
 .relay-menu__group + .relay-menu__group { margin-top: 20px; }
 .relay-menu__label { margin: 0 7px 7px; color: var(--color-text-muted); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
-.relay-menu__link { position: relative; display: flex; min-height: 36px; align-items: center; gap: 10px; border-radius: 8px; padding: 7px 8px; color: var(--color-text-secondary); font-size: 13px; font-weight: 650; }
+.relay-menu__link { position: relative; display: flex; min-height: 36px; align-items: center; gap: 10px; border-radius: 6px; padding: 7px 8px; color: var(--color-text-secondary); font-size: 13px; font-weight: 650; }
 .relay-menu__link:hover { background: var(--color-fill); color: var(--color-navy); text-decoration: none; }
-.relay-menu__link.active { background: var(--color-primary-soft); color: var(--color-primary); }
+.relay-menu__link.active { background: var(--color-navy); color: #fff; }
 .relay-menu__node { width: 7px; height: 7px; flex: 0 0 7px; border: 1.5px solid currentColor; border-radius: 50%; opacity: .72; }
-.relay-menu__link.active .relay-menu__node { border-color: var(--color-primary); background: var(--color-primary); box-shadow: 0 0 0 3px rgba(183, 71, 52, .14); }
+.relay-menu__link.active .relay-menu__node { border-color: #fff; background: var(--color-primary); box-shadow: none; }
 .relay-mobile-hint { display: none; }
 .relay-content { min-width: 0; }
-.relay-context { position: sticky; top: 98px; border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 18px; background: var(--color-surface); }.relay-context__top { padding-bottom: 14px; border-bottom: 1px solid var(--color-border); }.relay-context h2 { margin: 0; color: var(--color-navy); font-size: 16px; }.relay-context p { margin: 6px 0 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.55; }.relay-context__action { display: block; width: 100%; margin: 15px 0 17px; text-align: center; }.relay-context__steps { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }.relay-context__steps li { display: flex; align-items: flex-start; gap: 9px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.45; }.relay-context__steps span { display: grid; width: 19px; height: 19px; flex: 0 0 19px; place-items: center; border-radius: 50%; background: var(--color-fill-strong); color: var(--color-navy); font-size: 10px; font-weight: 850; }.relay-context__steps li:first-child span { background: var(--color-mustard); }.relay-context__link { display: inline-block; margin-top: 17px; border-bottom: 1px solid var(--color-primary); color: var(--color-primary); font-size: 12px; font-weight: 750; }
-.relay-freeze { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; padding: 14px 16px; border: 1px solid #dfb04d; border-radius: var(--radius-button); background: var(--color-warning-soft); }
-.relay-freeze strong, .relay-freeze span { display: block; }.relay-freeze strong { color: #704600; font-size: 14px; }.relay-freeze span { margin-top: 2px; color: #835d1d; font-size: 12px; }
+.relay-context { position: sticky; top: 98px; border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 18px; background: var(--color-surface); }.relay-context__top { padding-bottom: 14px; border-bottom: 1px solid var(--color-border); }.relay-context h2 { margin: 0; color: var(--color-navy); font-size: 16px; }.relay-context p { margin: 6px 0 0; color: var(--color-text-muted); font-size: 12px; line-height: 1.55; }.relay-context__action { display: block; width: 100%; margin: 15px 0 17px; text-align: center; }.relay-context__steps { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }.relay-context__steps li { display: flex; align-items: flex-start; gap: 9px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.45; }.relay-context__steps span { display: grid; width: 19px; height: 19px; flex: 0 0 19px; place-items: center; border-radius: 50%; background: var(--color-fill-strong); color: var(--color-navy); font-size: 10px; font-weight: 850; }.relay-context__steps li:first-child span { background: var(--color-primary); color: #fff; }.relay-context__link { display: inline-block; margin-top: 17px; border-bottom: 1px solid var(--color-primary); color: var(--color-primary); font-size: 12px; font-weight: 750; }
+.relay-freeze { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; padding: 14px 16px; border: 1px solid #9bb8ef; border-radius: var(--radius-button); background: var(--color-warning-soft); }
+.relay-freeze strong, .relay-freeze span { display: block; }.relay-freeze strong { color: var(--color-navy); font-size: 14px; }.relay-freeze span { margin-top: 2px; color: var(--color-text-secondary); font-size: 12px; }
 .relay-footer { display: flex; width: min(1480px, calc(100% - 40px)); justify-content: space-between; gap: 16px; margin: 0 auto; padding: 18px 0 28px; border-top: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 12px; }
 @media (max-width: 1199.98px) { .relay-shell { grid-template-columns: 222px minmax(0, 1fr); }.relay-context { display: none; } }
 @media (max-width: 991.98px) { .relay-topbar__inner, .relay-main, .relay-footer { width: min(100% - 28px, 820px); }.relay-menu-toggle { display: block; }.relay-topbar__actions { display: none; width: 100%; flex-basis: 100%; justify-content: flex-start; padding: 0 0 14px; }.relay-topbar__actions.show { display: flex; }.relay-shell { grid-template-columns: 1fr; gap: 18px; }.relay-rail { position: static; }.relay-menu { display: grid; max-height: none; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 20px; }.relay-menu__group + .relay-menu__group { margin-top: 0; }.relay-menu__label { margin-top: 6px; }.relay-rail__summary { padding: 14px 16px; } }
