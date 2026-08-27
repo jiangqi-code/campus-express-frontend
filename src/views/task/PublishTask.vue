@@ -1034,8 +1034,8 @@ async function submit() {
 </script>
 
 <template>
-  <div class="p-4">
-    <div class="d-flex align-items-center justify-content-between gap-2 mb-3">
+  <div class="publish-task p-4">
+    <div class="publish-header d-flex align-items-center justify-content-between gap-2 mb-3">
       <h2 class="mb-0">发布任务</h2>
     </div>
 
@@ -1326,120 +1326,12 @@ async function submit() {
 </template>
 
 <style scoped>
-.form-section-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 22px 0 18px;
-  padding: 14px 16px;
-  border-left: 4px solid var(--el-color-primary);
-  border-radius: 8px;
-  background: var(--el-fill-color-light);
-}
-
-.pricing-formula {
-  margin-bottom: 10px;
-  padding: 9px 11px;
-  border-radius: 7px;
-  background: var(--color-primary-soft);
-  color: var(--color-text-secondary);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.upload-failure-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
-  border-radius: 7px;
-  background: var(--color-danger-soft);
-  color: var(--color-danger);
-  font-size: 13px;
-}
-
-.amap-wrapper {
-  position: relative;
-}
-
-.amap-container {
-  height: 300px;
-  width: 100%;
-  border-radius: 8px;
-  border: 1px solid var(--el-border-color);
-  overflow: hidden;
-}
-
-.amap-search-input {
-  width: min(360px, 100%);
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 6px;
-  background: var(--el-bg-color);
-  color: var(--el-text-color-regular);
-  outline: none;
-}
-
-.amap-search-input:focus {
-  border-color: var(--el-color-primary);
-}
-
-:deep(.amap-sug-result) {
-  z-index: 3000;
-}
-
-.map-marker {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 2px solid #ffffff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-}
-
-.map-marker--pickup {
-  background: #22c55e;
-}
-
-.map-marker--delivery {
-  background: #ef4444;
-}
-
-.fee-summary {
-  width: min(420px, 100%);
-  padding: 12px 14px;
-  border: 1px solid var(--el-border-color);
-  border-radius: 8px;
-  background: var(--el-fill-color-blank);
-}
-
-.fee-summary__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 6px 0;
-  color: var(--el-text-color-regular);
-}
-
-.fee-summary__row + .fee-summary__row {
-  border-top: 1px dashed var(--el-border-color-lighter);
-}
-
-.fee-summary__row--total {
-  font-weight: 700;
-  color: var(--el-text-color-primary);
-}
-.coupon-saving { color: #389e0d; }
-.coupon-row { align-items: center; }
-
-@media (max-width: 575.98px) {
-  .form-section-heading { align-items: flex-start; }
-  :deep(.el-form-item) { display: block; }
-  :deep(.el-form-item__label) { width: auto !important; justify-content: flex-start; }
-  :deep(.el-form-item__content) { margin-left: 0 !important; }
-  .amap-container { height: 260px; }
-}
+.publish-task { max-width: 1050px; margin: 0 auto; }.publish-header { min-height: 86px; margin-bottom: 18px !important; border-radius: var(--radius-card); padding: 22px 26px; background: var(--color-mustard); }.publish-header h2 { color: var(--color-navy); font-size: clamp(23px, 3vw, 30px); }
+.publish-task :deep(.el-card) { border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-surface); box-shadow: none; }.publish-task :deep(.el-card__body) { padding: 10px 28px 28px; }
+.form-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 30px 0 18px; padding: 0 0 11px; border-bottom: 1px solid var(--color-border-strong); }.form-section-heading strong { color: var(--color-navy); font-size: 16px; }.form-section-heading strong::before { display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 50%; background: var(--color-primary); content: ''; }.form-section-heading > div > div { margin-top: 3px; }
+.pricing-formula { margin-bottom: 12px; border-radius: 10px; padding: 10px 12px; background: var(--color-primary-soft); color: var(--color-text-secondary); font-size: 13px; line-height: 1.55; }.upload-failure-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-radius: 8px; padding: 9px 11px; background: var(--color-danger-soft); color: var(--color-danger); font-size: 13px; }
+.amap-wrapper { position: relative; }.amap-container { width: 100%; height: 340px; overflow: hidden; border: 1px solid var(--color-border-strong); border-radius: 12px; }.amap-search-input { width: min(360px, 100%); height: 36px; border: 1px solid var(--color-border); border-radius: 8px; padding: 0 11px; background: var(--color-surface); color: var(--color-text-secondary); outline: none; }.amap-search-input:focus { border-color: var(--color-primary); box-shadow: var(--focus-ring); }:deep(.amap-sug-result) { z-index: 3000; }
+.map-marker { width: 18px; height: 18px; border: 2px solid #fffdf8; border-radius: 50%; box-shadow: 0 3px 9px rgba(19, 47, 63, .24); }.map-marker--pickup { background: var(--color-success); }.map-marker--delivery { background: var(--color-primary); }
+.fee-summary { width: min(460px, 100%); border: 1px solid var(--color-border-strong); border-radius: 12px; padding: 14px 16px; background: var(--color-fill); }.fee-summary__row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 0; color: var(--color-text-secondary); }.fee-summary__row + .fee-summary__row { border-top: 1px dashed var(--color-border); }.fee-summary__row--total { color: var(--color-navy); font-size: 15px; font-weight: 800; }.coupon-saving { color: var(--color-success); }.coupon-row { align-items: center; }
+@media (max-width: 575.98px) { .publish-header { min-height: 74px; padding: 18px; }.publish-task :deep(.el-card__body) { padding: 4px 16px 22px; }.form-section-heading { align-items: flex-start; }.form-section-heading .el-button { flex: 0 0 auto; } :deep(.el-form-item) { display: block; } :deep(.el-form-item__label) { width: auto !important; justify-content: flex-start; } :deep(.el-form-item__content) { margin-left: 0 !important; } .amap-container { height: 260px; }.fee-summary__row { align-items: flex-start; flex-direction: column; gap: 5px; }.coupon-row { align-items: flex-start; } }
 </style>

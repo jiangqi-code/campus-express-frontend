@@ -4,7 +4,7 @@ import { ref } from 'vue'
 const PRIMARY_KEY = 'ce_primary_color'
 
 export const useThemeStore = defineStore('theme', () => {
-  const primary = ref(localStorage.getItem(PRIMARY_KEY) || '#4361ee')
+  const primary = ref(localStorage.getItem(PRIMARY_KEY) || '#b74734')
 
   function setPrimary(next: string) {
     primary.value = next

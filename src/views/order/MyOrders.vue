@@ -835,7 +835,7 @@ function pickItems(data: any, type: TabKey): OrderRow[] {
   return (items as any[])
     .map((it) => {
       const task = it?.task ?? {}
-      const orderId = pickOrderIdFromRow(it)
+      const orderId = pickOrderIdFromRow(it) || (type === 'taken' ? String(it?.id ?? '').trim() : '')
       const taskId = String(it?.task_id ?? it?.taskId ?? task?.id ?? it?.id ?? '').trim()
       const normalized: any = { ...(it as any) }
       if (orderId && normalized.order_id === undefined) normalized.order_id = orderId
@@ -1722,19 +1722,14 @@ async function onMarkDelivered(o: OrderRow) {
 </template>
 
 <style scoped>
-.mini-route-box {
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 12px;
-  padding: 12px;
-  background: rgba(0, 0, 0, 0.02);
-}
+.mini-route-box { border: 1px solid var(--color-border); border-radius: 12px; padding: 14px; background: var(--color-fill); }
 
 .runner-status-steps { display: flex; justify-content: space-between; gap: 8px; }
-.runner-status-step { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 4px; color: #adb5bd; font-size: 12px; text-align: center; }
-.runner-step-dot { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 50%; background: #e9ecef; color: #6c757d; font-weight: 600; }
-.runner-status-step.active { color: #0d6efd; font-weight: 600; }
-.runner-status-step.active .runner-step-dot { background: #0d6efd; color: #fff; }
-.review-order-summary { padding: 14px 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #f8fafc; }
+.runner-status-step { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 4px; color: var(--color-text-disabled); font-size: 12px; text-align: center; }
+.runner-step-dot { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 50%; background: var(--color-fill-strong); color: var(--color-text-muted); font-weight: 700; }
+.runner-status-step.active { color: var(--color-primary); font-weight: 700; }
+.runner-status-step.active .runner-step-dot { background: var(--color-primary); color: #fffdf8; }
+.review-order-summary { padding: 14px 16px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-fill); }
 
 .mini-route {
   display: flex;
@@ -1752,31 +1747,10 @@ async function onMarkDelivered(o: OrderRow) {
   flex: 0 0 auto;
 }
 
-.mini-dot.start {
-  border-color: rgba(25, 135, 84, 0.8);
-}
+.mini-dot.start { border-color: var(--color-success); }
+.mini-dot.end { border-color: var(--color-primary); }
 
-.mini-dot.end {
-  border-color: rgba(220, 53, 69, 0.8);
-}
+.mini-line { position: relative; height: 2px; background: linear-gradient(90deg, var(--color-success), var(--color-primary)); flex: 1 1 auto; border-radius: 999px; }
 
-.mini-line {
-  position: relative;
-  height: 2px;
-  background: linear-gradient(90deg, rgba(25, 135, 84, 0.8), rgba(220, 53, 69, 0.8));
-  flex: 1 1 auto;
-  border-radius: 999px;
-}
-
-.mini-runner {
-  position: absolute;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(13, 110, 253, 0.95);
-  border: 2px solid rgba(255, 255, 255, 0.95);
-  box-shadow: 0 2px 10px rgba(13, 110, 253, 0.3);
-}
+.mini-runner { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 10px; height: 10px; border: 2px solid #fffdf8; border-radius: 999px; background: var(--color-mustard); box-shadow: 0 2px 10px rgba(185, 130, 22, .3); }
 </style>

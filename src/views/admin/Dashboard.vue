@@ -1,34 +1,95 @@
 <template>
   <main class="screen" v-loading="loading">
-    <header class="top"><div><small>● CAMPUS EXPRESS · DATA CENTER</small><h1>管理员数据可视化大屏</h1><p>实时洞察校园配送业务态势与运力表现</p></div><div class="actions"><span>● 系统运行正常</span><span>{{ updated || '--:--:--' }}</span><button @click="load" :disabled="loading">↻ 刷新数据</button></div></header>
+    <header class="top">
+      <div><h1>Campus Express 运营中枢</h1><p>实时洞察校园配送业务态势与运力表现</p></div>
+      <div class="actions"><span class="system-state">系统运行正常</span><span>{{ updated || '--:--:--' }}</span><button @click="load" :disabled="loading">刷新数据</button></div>
+    </header>
     <el-alert v-if="error" class="alert" type="error" :closable="false" :title="error" show-icon />
-    <section class="stats"><article v-for="x in cards" :key="x.name" :style="{ '--c': x.color }"><i>{{ x.icon }}</i><div><span>{{ x.name }}</span><strong>{{ x.value }}</strong><small>{{ x.en }}</small></div></article></section>
+    <section class="stats"><article v-for="x in cards" :key="x.name" :style="{ '--c': x.color }"><span class="stat-track" aria-hidden="true" /><div><span>{{ x.name }}</span><strong>{{ x.value }}</strong><small>{{ x.en }}</small></div></article></section>
     <section class="grid"><article v-for="x in panels" :key="x.key"><header><h2>{{ x.title }}</h2><small>{{ x.en }}</small></header><div :ref="el => bind(x.key, el)" class="chart" /></article></section>
-    <footer><span>● 数据源：/api/admin/dashboard</span><span>Campus Express Admin Intelligence</span></footer>
+    <footer><span>数据源：/api/admin/dashboard</span><span>Campus Express Admin Intelligence</span></footer>
   </main>
 </template>
+
 <script setup lang="ts">
 import * as echarts from 'echarts'
 import { computed, nextTick, onMounted, onUnmounted, ref, type ComponentPublicInstance } from 'vue'
 import { http } from '@/api/request'
-type Key='trend'|'rank'|'types'|'heat'; type Row={name:string;value:number}; type Heat={name:string;x:number;y:number;value:number}
-const loading=ref(false),error=ref(''),updated=ref(''); const els:Partial<Record<Key,HTMLDivElement>>={}, charts:Partial<Record<Key,echarts.ECharts>>={}
-const data=ref({todayOrders:0,todayAmount:0,activeUsers:0,runnerCount:0,trend:[] as {date:string;value:number}[],rank:[] as Row[],types:[] as Row[],heat:[] as Heat[]})
-const panels:{key:Key;title:string;en:string}[]=[{key:'trend',title:'近 7 天订单趋势',en:'ORDERS TREND'},{key:'rank',title:'跑腿员接单排行',en:'RUNNER RANKING'},{key:'types',title:'订单类型分布',en:'ORDER CATEGORY'},{key:'heat',title:'区域订单密度',en:'CAMPUS HEATMAP'}]
-const n=(v:unknown)=>Number.isFinite(Number(v))?Number(v):0,a=(v:unknown):any[]=>Array.isArray(v)?v:[]
-const cards=computed(()=>[{name:'今日订单量',value:data.value.todayOrders.toLocaleString(),en:'TODAY ORDERS',icon:'▣',color:'#27e0ff'},{name:'今日交易额',value:new Intl.NumberFormat('zh-CN',{style:'currency',currency:'CNY'}).format(data.value.todayAmount),en:'TODAY REVENUE',icon:'¥',color:'#8b7cff'},{name:'活跃用户',value:data.value.activeUsers.toLocaleString(),en:'ACTIVE USERS',icon:'◎',color:'#23f0ad'},{name:'在线运力',value:data.value.runnerCount.toLocaleString(),en:'ACTIVE RUNNERS',icon:'◇',color:'#ffb84d'}])
-function bind(k:Key,el:Element|ComponentPublicInstance|null){if(el instanceof HTMLDivElement)els[k]=el}
-function normalize(res:any){const r=res?.data?.data??res?.data??{},os=r.orderStats??{},ms=r.amountStats??{},us=r.userStats??{},t=a(r.trend7d??r.orderTrend??r.ordersTrend),q=a(r.runnerRanking??r.runnerRank),p=a(r.orderTypeDistribution??r.orderTypes),h=a(r.areaOrderDensity??r.heatmap??r.regionDistribution);return{todayOrders:n(r.todayOrders??os.todayOrders),todayAmount:n(r.todayAmount??ms.todayAmount??r.totalAmount??ms.totalAmount),activeUsers:n(r.activeUsers??us.activeUsers),runnerCount:n(r.runnerCount??us.runnerCount??q.length),trend:t.map(x=>({date:String(x.date??x.day??''),value:n(x.orders??x.count??x.value)})),rank:q.map((x,i)=>({name:String(x.name??x.nickname??`跑腿员 ${i+1}`),value:n(x.orders??x.completedOrders??x.orderCount)})),types:p.map(x=>({name:String(x.name??x.typeName??x.type??'其他'),value:n(x.value??x.count??x.orders)})),heat:h.map((x,i)=>({name:String(x.area??x.name??x.region??`区域 ${i+1}`),x:n(x.x??x.col??i%5),y:n(x.y??x.row??Math.floor(i/5)),value:n(x.value??x.count??x.orders??x.heat)}))}}
-const tip={backgroundColor:'#051024f5',borderColor:'#19c9ff',textStyle:{color:'#dff7ff'}}, empty=(s:string):echarts.EChartsOption=>({title:{text:s,left:'center',top:'middle',textStyle:{color:'#5f7896',fontSize:13,fontWeight:400}}})
-function make(k:Key){charts[k]?.dispose();return els[k]?(charts[k]=echarts.init(els[k])):undefined}
-function render(){const axis={color:'#7188a6'},split={lineStyle:{color:'#5683b12b'}},t=data.value.trend,r=data.value.rank.slice(0,8).reverse(),p=data.value.types,h=data.value.heat
-make('trend')?.setOption(t.length?{tooltip:{...tip,trigger:'axis'},grid:{left:45,right:25,top:30,bottom:35},xAxis:{type:'category',boundaryGap:false,data:t.map(x=>x.date.slice(5)),axisLabel:axis},yAxis:{type:'value',axisLabel:axis,splitLine:split},series:[{type:'line',smooth:true,data:t.map(x=>x.value),lineStyle:{color:'#24d8ff',width:3,shadowBlur:12,shadowColor:'#24d8ff'},areaStyle:{color:new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'#24d8ff66'},{offset:1,color:'#24d8ff00'}])}}]}:empty('暂无近 7 天趋势数据'))
-make('rank')?.setOption(r.length?{tooltip:{...tip,trigger:'axis'},grid:{left:80,right:30,top:25,bottom:25},xAxis:{type:'value',axisLabel:axis,splitLine:split},yAxis:{type:'category',data:r.map(x=>x.name),axisLabel:axis},series:[{type:'bar',barWidth:12,data:r.map(x=>x.value),itemStyle:{borderRadius:[0,8,8,0],color:new echarts.graphic.LinearGradient(0,0,1,0,[{offset:0,color:'#3265f5'},{offset:1,color:'#24e2ff'}])}}]}:empty('暂无跑腿员排行数据'))
-make('types')?.setOption(p.length?{tooltip:{...tip,trigger:'item'},legend:{bottom:8,textStyle:{color:'#8299b5'}},color:['#29d9ff','#7d73ff','#23e6a4','#ffb64a','#ff6482'],series:[{type:'pie',radius:['45%','69%'],center:['50%','44%'],padAngle:3,label:{color:'#b7c9dc',formatter:'{b}\n{d}%'},itemStyle:{borderColor:'#071326',borderWidth:3,borderRadius:5},data:p}]}:empty('暂无订单类型分布数据'))
-const mx=Math.max(4,...h.map(x=>x.x)),my=Math.max(3,...h.map(x=>x.y));make('heat')?.setOption(h.length?{tooltip:{...tip,formatter:(x:any)=>`${x.data[3]}<br/>订单密度：${x.data[2]}`},grid:{left:45,right:30,top:25,bottom:55},xAxis:{type:'category',data:Array.from({length:mx+1},(_,i)=>`${i+1}区`),axisLabel:axis,splitArea:{show:true}},yAxis:{type:'category',data:Array.from({length:my+1},(_,i)=>`${String.fromCharCode(65+i)}片`),axisLabel:axis,splitArea:{show:true}},visualMap:{min:0,max:Math.max(1,...h.map(x=>x.value)),calculable:true,orient:'horizontal',left:'center',bottom:3,textStyle:{color:'#7188a6'},inRange:{color:['#102642','#17649a','#20d8e9','#f3e35c']}},series:[{type:'heatmap',data:h.map(x=>[x.x,x.y,x.value,x.name]),label:{show:true,color:'#dffaff',formatter:(x:any)=>x.data[3]},itemStyle:{borderColor:'#0a1b31',borderWidth:3}}]}:empty('暂无区域订单密度数据'))}
-async function load(){if(loading.value)return;loading.value=true;error.value='';try{data.value=normalize(await http.get('/admin/dashboard'));updated.value=new Date().toLocaleTimeString('zh-CN',{hour12:false});await nextTick();render()}catch(e:any){error.value=e?.response?.data?.message??e?.message??'数据加载失败，请稍后重试'}finally{loading.value=false}}
-function resize(){Object.values(charts).forEach(x=>x?.resize())} onMounted(()=>{load();window.addEventListener('resize',resize)});onUnmounted(()=>{window.removeEventListener('resize',resize);Object.values(charts).forEach(x=>x?.dispose())})
+
+type Key = 'trend' | 'rank' | 'types' | 'heat'
+type Row = { name: string; value: number }
+type Heat = { name: string; x: number; y: number; value: number }
+const loading = ref(false)
+const error = ref('')
+const updated = ref('')
+const els: Partial<Record<Key, HTMLDivElement>> = {}
+const charts: Partial<Record<Key, echarts.ECharts>> = {}
+const data = ref({ todayOrders: 0, todayAmount: 0, activeUsers: 0, runnerCount: 0, trend: [] as { date: string; value: number }[], rank: [] as Row[], types: [] as Row[], heat: [] as Heat[] })
+const panels: { key: Key; title: string; en: string }[] = [{ key: 'trend', title: '近 7 天订单趋势', en: 'ORDERS TREND' }, { key: 'rank', title: '跑腿员接单排行', en: 'RUNNER RANKING' }, { key: 'types', title: '订单类型分布', en: 'ORDER CATEGORY' }, { key: 'heat', title: '区域订单密度', en: 'CAMPUS HEATMAP' }]
+const toNumber = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0
+const toList = (value: unknown): any[] => Array.isArray(value) ? value : []
+const cards = computed(() => [
+  { name: '今日订单量', value: data.value.todayOrders.toLocaleString(), en: 'TODAY ORDERS', color: '#b74734' },
+  { name: '今日交易额', value: new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' }).format(data.value.todayAmount), en: 'TODAY REVENUE', color: '#b98216' },
+  { name: '活跃用户', value: data.value.activeUsers.toLocaleString(), en: 'ACTIVE USERS', color: '#087c6d' },
+  { name: '在线运力', value: data.value.runnerCount.toLocaleString(), en: 'ACTIVE RUNNERS', color: '#236978' },
+])
+
+function bind(key: Key, el: Element | ComponentPublicInstance | null) { if (el instanceof HTMLDivElement) els[key] = el }
+function normalize(response: any) {
+  const root = response?.data?.data ?? response?.data ?? {}
+  const order = root.orderStats ?? {}
+  const amount = root.amountStats ?? {}
+  const users = root.userStats ?? {}
+  const rankSource = toList(root.runnerRanking ?? root.runnerRank)
+  return {
+    todayOrders: toNumber(root.todayOrders ?? order.todayOrders),
+    todayAmount: toNumber(root.todayAmount ?? amount.todayAmount ?? root.totalAmount ?? amount.totalAmount),
+    activeUsers: toNumber(root.activeUsers ?? users.activeUsers),
+    runnerCount: toNumber(root.runnerCount ?? users.runnerCount ?? rankSource.length),
+    trend: toList(root.trend7d ?? root.orderTrend ?? root.ordersTrend).map(row => ({ date: String(row.date ?? row.day ?? ''), value: toNumber(row.orders ?? row.count ?? row.value) })),
+    rank: rankSource.map((row, index) => ({ name: String(row.name ?? row.nickname ?? ('跑腿员 ' + (index + 1))), value: toNumber(row.orders ?? row.completedOrders ?? row.orderCount) })),
+    types: toList(root.orderTypeDistribution ?? root.orderTypes).map(row => ({ name: String(row.name ?? row.typeName ?? row.type ?? '其他'), value: toNumber(row.value ?? row.count ?? row.orders) })),
+    heat: toList(root.areaOrderDensity ?? root.heatmap ?? root.regionDistribution).map((row, index) => ({ name: String(row.area ?? row.name ?? row.region ?? ('区域 ' + (index + 1))), x: toNumber(row.x ?? row.col ?? index % 5), y: toNumber(row.y ?? row.row ?? Math.floor(index / 5)), value: toNumber(row.value ?? row.count ?? row.orders ?? row.heat) })),
+  }
+}
+const tip = { backgroundColor: '#132f3ff5', borderColor: '#4cb19b', textStyle: { color: '#fffdf8' } }
+const axis = { color: '#637a80' }
+const split = { lineStyle: { color: '#ded4c7' } }
+const empty = (text: string): echarts.EChartsOption => ({ title: { text, left: 'center', top: 'middle', textStyle: { color: '#637a80', fontSize: 13, fontWeight: 400 } } })
+function make(key: Key) { charts[key]?.dispose(); return els[key] ? (charts[key] = echarts.init(els[key])) : undefined }
+
+function render() {
+  const trend = data.value.trend
+  const rank = data.value.rank.slice(0, 8).reverse()
+  const types = data.value.types
+  const heat = data.value.heat
+  make('trend')?.setOption(trend.length ? { tooltip: { ...tip, trigger: 'axis' }, grid: { left: 45, right: 25, top: 30, bottom: 35 }, xAxis: { type: 'category', boundaryGap: false, data: trend.map(row => row.date.slice(5)), axisLabel: axis }, yAxis: { type: 'value', axisLabel: axis, splitLine: split }, series: [{ type: 'line', smooth: true, data: trend.map(row => row.value), lineStyle: { color: '#b74734', width: 3 }, areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#b747345c' }, { offset: 1, color: '#b7473400' }]) } }] } : empty('暂无近 7 天趋势数据'))
+  make('rank')?.setOption(rank.length ? { tooltip: { ...tip, trigger: 'axis' }, grid: { left: 80, right: 30, top: 25, bottom: 25 }, xAxis: { type: 'value', axisLabel: axis, splitLine: split }, yAxis: { type: 'category', data: rank.map(row => row.name), axisLabel: axis }, series: [{ type: 'bar', barWidth: 12, data: rank.map(row => row.value), itemStyle: { borderRadius: [0, 8, 8, 0], color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [{ offset: 0, color: '#b74734' }, { offset: 1, color: '#b98216' }]) } }] } : empty('暂无跑腿员排行数据'))
+  make('types')?.setOption(types.length ? { tooltip: { ...tip, trigger: 'item' }, legend: { bottom: 8, textStyle: { color: '#637a80' } }, color: ['#b74734', '#087c6d', '#b98216', '#236978', '#d66e49'], series: [{ type: 'pie', radius: ['45%', '69%'], center: ['50%', '44%'], padAngle: 3, label: { color: '#36535c', formatter: '{b}\\n{d}%' }, itemStyle: { borderColor: '#fffdf8', borderWidth: 3, borderRadius: 5 }, data: types }] } : empty('暂无订单类型分布数据'))
+  const maxX = Math.max(4, ...heat.map(row => row.x))
+  const maxY = Math.max(3, ...heat.map(row => row.y))
+  make('heat')?.setOption(heat.length ? { tooltip: { ...tip, formatter: (item: any) => String(item.data[3]) + '<br/>订单密度：' + String(item.data[2]) }, grid: { left: 45, right: 30, top: 25, bottom: 55 }, xAxis: { type: 'category', data: Array.from({ length: maxX + 1 }, (_, index) => String(index + 1) + '区'), axisLabel: axis, splitArea: { show: true } }, yAxis: { type: 'category', data: Array.from({ length: maxY + 1 }, (_, index) => String.fromCharCode(65 + index) + '片'), axisLabel: axis, splitArea: { show: true } }, visualMap: { min: 0, max: Math.max(1, ...heat.map(row => row.value)), calculable: true, orient: 'horizontal', left: 'center', bottom: 3, textStyle: { color: '#637a80' }, inRange: { color: ['#f7f1e8', '#ecd18a', '#d67860', '#b74734'] } }, series: [{ type: 'heatmap', data: heat.map(row => [row.x, row.y, row.value, row.name]), label: { show: true, color: '#19333d', formatter: (item: any) => String(item.data[3]) }, itemStyle: { borderColor: '#fffdf8', borderWidth: 3 } }] } : empty('暂无区域订单密度数据'))
+}
+async function load() {
+  if (loading.value) return
+  loading.value = true
+  error.value = ''
+  try { data.value = normalize(await http.get('/admin/dashboard')); updated.value = new Date().toLocaleTimeString('zh-CN', { hour12: false }); await nextTick(); render() }
+  catch (err: any) { error.value = err?.response?.data?.message ?? err?.message ?? '数据加载失败，请稍后重试' }
+  finally { loading.value = false }
+}
+function resize() { Object.values(charts).forEach(chart => chart?.resize()) }
+onMounted(() => { load(); window.addEventListener('resize', resize) })
+onUnmounted(() => { window.removeEventListener('resize', resize); Object.values(charts).forEach(chart => chart?.dispose()) })
 </script>
+
 <style scoped>
-.screen{min-height:calc(100vh - 72px);padding:24px;color:#dcecff;background:linear-gradient(#1b4e7710 1px,transparent 1px),linear-gradient(90deg,#1b4e7710 1px,transparent 1px),radial-gradient(circle at 50% -20%,#133764,#071528 40%,#040b17 78%);background-size:34px 34px,34px 34px,auto;border-radius:20px;font-family:Inter,"Microsoft YaHei",sans-serif}.top{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:22px}.top small{color:#43dbff;letter-spacing:2px}.top h1{margin:7px 0;font-size:clamp(24px,2.2vw,36px);letter-spacing:2px}.top p{margin:0;color:#6f89a8}.actions{display:flex;align-items:center;gap:14px;color:#7890ac;font-size:12px}.actions span:first-child{color:#29f4b1}.actions button{padding:9px 14px;color:#aeefff;border:1px solid #27dfff70;border-radius:8px;background:#11496938;cursor:pointer}.alert{margin-bottom:16px}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px}.stats article,.grid article{overflow:hidden;border:1px solid #409cce33;background:linear-gradient(145deg,#0d233de8,#051120e3);box-shadow:0 14px 40px #00040e47;transition:.25s}.stats article{position:relative;display:flex;align-items:center;min-height:105px;padding:18px;border-radius:13px}.stats article:before{content:"";position:absolute;inset:0 auto 0 0;width:2px;background:var(--c);box-shadow:0 0 13px var(--c)}.stats article:hover,.grid article:hover{transform:translateY(-3px);border-color:#27dfff80;box-shadow:0 16px 44px #00040e70,0 0 22px #1fcbff16}.stats i{display:grid;place-items:center;width:46px;height:46px;margin-right:15px;color:var(--c);border:1px solid var(--c);border-radius:12px;font-style:normal;font-size:22px}.stats article div{display:flex;flex-direction:column}.stats span{color:#7890aa;font-size:12px}.stats strong{color:#f0f8ff;font-size:clamp(22px,2vw,30px)}.stats small{color:var(--c);font-size:9px;letter-spacing:1px}.grid{display:grid;grid-template-columns:1.25fr 1fr;grid-template-rows:repeat(2,310px);gap:16px}.grid article{border-radius:14px}.grid header{display:flex;align-items:center;justify-content:space-between;height:54px;padding:0 18px;border-bottom:1px solid #417ba626}.grid h2{margin:0;padding-left:10px;border-left:3px solid #27dfff;font-size:15px}.grid header small{color:#3b6a8e;letter-spacing:1px}.chart{height:calc(100% - 54px)}footer{display:flex;justify-content:space-between;margin-top:18px;color:#3e5b78;font-size:10px}@media(max-width:1100px){.stats{grid-template-columns:repeat(2,1fr)}.grid{grid-template-columns:1fr;grid-template-rows:repeat(4,320px)}}@media(max-width:700px){.screen{padding:16px}.top{align-items:flex-start;flex-direction:column}.actions{flex-wrap:wrap}.stats{grid-template-columns:1fr}footer{gap:8px;flex-direction:column}}
+.screen { min-height: calc(100vh - 72px); padding: 0; color: var(--color-text); font-family: "PingFang SC", "Microsoft YaHei", sans-serif; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 18px; border-radius: var(--radius-card); padding: 28px 30px; background: var(--color-navy); }.top h1 { margin: 0; color: #fffdf8; font-size: clamp(25px, 2.4vw, 36px); letter-spacing: -.04em; }.top p { margin: 6px 0 0; color: rgba(255,253,248,.68); }
+.actions { display: flex; align-items: center; gap: 14px; color: rgba(255,253,248,.7); font-size: 12px; }.system-state { display: inline-flex; align-items: center; gap: 7px; color: #9fe2d4; }.system-state::before { width: 7px; height: 7px; border-radius: 50%; background: #4cb19b; box-shadow: 0 0 0 4px rgba(76,177,155,.18); content: ""; }.actions button { border: 1px solid rgba(255,253,248,.42); border-radius: 8px; padding: 9px 14px; background: transparent; color: #fffdf8; font-weight: 700; cursor: pointer; }.actions button:hover { background: #fffdf8; color: var(--color-navy); }
+.alert { margin-bottom: 16px; }.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }.stats article, .grid article { overflow: hidden; border: 1px solid var(--color-border); background: var(--color-surface); transition: transform var(--transition-fast), border-color var(--transition-fast); }.stats article { display: flex; min-height: 112px; align-items: center; gap: 14px; border-radius: 14px; padding: 18px; }.stats article:hover, .grid article:hover { transform: translateY(-2px); border-color: var(--color-border-strong); }.stat-track { display: flex; width: 14px; height: 50px; flex: 0 0 14px; align-items: center; border-radius: 7px; background: color-mix(in srgb, var(--c) 14%, #fffdf8); }.stat-track::after { width: 14px; height: 26px; border-radius: 7px; background: var(--c); content: ""; }.stats article div { display: flex; flex-direction: column; }.stats span { color: var(--color-text-muted); font-size: 12px; font-weight: 700; }.stats strong { color: var(--color-navy); font-size: clamp(22px, 2vw, 30px); letter-spacing: -.04em; }.stats small { margin-top: 2px; color: var(--c); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+.grid { display: grid; grid-template-columns: 1.25fr 1fr; grid-template-rows: repeat(2, 310px); gap: 12px; }.grid article { border-radius: 14px; }.grid header { display: flex; align-items: center; justify-content: space-between; height: 54px; padding: 0 18px; border-bottom: 1px solid var(--color-border); }.grid h2 { margin: 0; color: var(--color-navy); font-size: 15px; }.grid header small { color: var(--color-text-muted); font-size: 10px; font-weight: 800; letter-spacing: .08em; }.chart { height: calc(100% - 54px); } footer { display: flex; justify-content: space-between; margin-top: 18px; color: var(--color-text-muted); font-size: 10px; }
+@media (max-width: 1100px) { .stats { grid-template-columns: repeat(2, 1fr); }.grid { grid-template-columns: 1fr; grid-template-rows: repeat(4, 320px); } }
+@media (max-width: 700px) { .top { align-items: flex-start; flex-direction: column; padding: 22px; }.actions { flex-wrap: wrap; }.stats { grid-template-columns: 1fr; }.grid { grid-template-rows: repeat(4, 280px); } footer { gap: 8px; flex-direction: column; } }
 </style>
