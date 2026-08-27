@@ -48,6 +48,7 @@ const totalPages = computed(() => {
 const hasMore = computed(() => pagination.page < totalPages.value)
 const isRunner = computed(() => auth.role === 'runner')
 const isFrozen = computed(() => Boolean(auth.isFrozen))
+const canPublish = computed(() => auth.role === 'user' || auth.role === 'admin')
 
 function isPendingTask(task: TaskListItem) {
   const status = String((task as any)?.status ?? '').trim()
@@ -563,20 +564,21 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="vstack gap-3">
-    <div class="d-flex flex-wrap align-items-end justify-content-between gap-2">
+  <div class="task-hall vstack gap-3">
+    <div class="hall-header d-flex flex-wrap align-items-end justify-content-between gap-2">
       <div>
         <h1 class="h4 mb-1">任务大厅</h1>
         <div class="text-muted">待接单任务（PENDING）</div>
       </div>
       <div class="d-flex gap-2">
+        <RouterLink v-if="canPublish" class="btn btn-primary" to="/task/publish">发布任务</RouterLink>
         <button class="btn btn-outline-primary" type="button" :disabled="loading" @click="fetchList(false)">刷新</button>
       </div>
     </div>
 
     <div v-if="errorMessage" class="alert alert-danger mb-0" role="alert">{{ errorMessage }}</div>
 
-    <div class="card border-0 shadow-sm">
+    <div class="hall-filter-card card border-0 shadow-sm">
       <div class="card-body">
         <div class="row g-3 align-items-end">
           <div class="col-12 col-md-7 col-lg-8">
@@ -635,7 +637,6 @@ onBeforeUnmount(() => {
 
         <div v-else class="mt-3 vstack gap-2">
           <div v-if="displayRows.length === 0" class="task-empty">
-            <svg class="empty-illustration" viewBox="0 0 240 180" aria-hidden="true"><rect x="34" y="34" width="172" height="112" rx="28" fill="#eef3ff"/><path d="m78 78 42-22 42 22-42 22-42-22Z" fill="#fff" stroke="#3b82f6" stroke-width="5"/><path d="M78 78v45l42 22 42-22V78m-42 22v45" fill="#fff" stroke="#3b82f6" stroke-width="5" stroke-linejoin="round"/><circle cx="187" cy="48" r="11" fill="#f59e0b"/></svg>
             <div class="fw-semibold">暂时没有匹配的任务</div>
             <div class="text-muted small">调整筛选条件，或发布一个新的跑腿需求</div>
             <div class="d-flex gap-2 mt-2">
@@ -644,7 +645,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div v-for="t in displayRows" :key="taskKeyOf(t)" class="task-card card shadow-sm">
+          <div v-for="t in displayRows" :key="taskKeyOf(t)" class="task-card relay-task-card card shadow-sm">
             <div class="card-body">
               <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
                 <div class="task-route vstack gap-2">
@@ -692,36 +693,22 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.filter-toolbar { display: grid; gap: 10px; padding: 14px; border-radius: 12px; background: var(--color-fill); }
-.filter-block { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.filter-label { width: 44px; color: var(--color-text-muted); font-size: 0.8rem; }
-.filter-chip {
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
-  padding: 5px 11px;
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  font-size: 0.8rem;
-}
-.filter-chip.active { border-color: #bfdbfe; background: var(--color-primary-soft); color: var(--color-primary); font-weight: 600; }
-.task-card { border-color: #eef0f3; transition: transform var(--transition-fast), box-shadow var(--transition-fast); }
-.task-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-md) !important; }
-.task-route { min-width: min(540px, 100%); }
-.route-line-item { display: grid; grid-template-columns: 10px 24px minmax(0, 1fr); align-items: center; gap: 8px; }
-.route-dot { width: 9px; height: 9px; border-radius: 50%; }
-.route-dot.pickup { background: var(--color-success); }
-.route-dot.delivery { background: var(--color-danger); }
-.route-label { color: var(--color-text-muted); font-size: 0.75rem; }
-.task-remark { border-left: 3px solid #bfdbfe; border-radius: 4px; padding: 7px 10px; background: #f8fafc; }
-.task-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; }
-.task-meta span:not(:last-child)::after { content: '·'; margin-left: 16px; color: var(--color-border-strong); }
-.task-price { color: var(--color-danger); font-size: 1.45rem; font-weight: 750; white-space: nowrap; }
-.task-empty { display: flex; min-height: 320px; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-.empty-illustration { width: 220px; max-width: 80%; height: auto; }
-.load-more-state { min-height: 48px; padding: 14px; color: var(--color-text-muted); text-align: center; }
-@media (max-width: 575.98px) {
-  .filter-label { width: 100%; }
-  .task-route { min-width: 100%; }
-  .task-meta span::after { display: none; }
-}
+.hall-header { position: relative; min-height: 112px; overflow: hidden; border-radius: var(--radius-card); padding: 26px 28px; background: var(--color-navy); color: #fffdf8; }
+.hall-header::after { position: absolute; width: 260px; height: 260px; right: -96px; bottom: -170px; border: 26px solid rgba(247, 191, 79, .92); border-radius: 50%; content: ''; }
+.hall-header::before { position: absolute; width: 148px; height: 2px; right: 48px; top: 40px; background: #4cb19b; box-shadow: 52px 34px 0 #f7bf4f, 18px 68px 0 #f36f56; content: ''; }
+.hall-header h1 { position: relative; z-index: 1; color: #fffdf8; font-size: clamp(24px, 3vw, 30px); }.hall-header .text-muted { position: relative; z-index: 1; color: rgba(255,253,248,.68) !important; }
+.hall-header .btn { position: relative; z-index: 1; }.hall-header .btn-primary { border-color: #f7bf4f; background: #f7bf4f; color: var(--color-navy); }.hall-header .btn-primary:hover { border-color: #fffdf8; background: #fffdf8; color: var(--color-navy); }.hall-header .btn-outline-primary { border-color: rgba(255,253,248,.52); color: #fffdf8; }.hall-header .btn-outline-primary:hover { background: transparent; border-color: #f7bf4f; color: #f7bf4f; }
+.hall-filter-card { border-color: var(--color-border-strong) !important; }.hall-filter-card :deep(.card-body) { padding: 22px; }
+.filter-toolbar { display: grid; gap: 12px; padding: 16px; border-radius: 12px; background: var(--color-fill); }
+.filter-block { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }.filter-label { width: 48px; color: var(--color-text-muted); font-size: .78rem; font-weight: 800; }
+.filter-chip { border: 1px solid var(--color-border); border-radius: var(--radius-pill); padding: 5px 12px; background: var(--color-surface); color: var(--color-text-secondary); font-size: .8rem; font-weight: 650; transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast); }
+.filter-chip:hover { border-color: var(--color-primary); color: var(--color-primary); }.filter-chip.active { border-color: var(--color-primary); background: var(--color-primary); color: #fffdf8; }
+.relay-task-card { position: relative; overflow: visible; border-color: var(--color-border) !important; transition: transform var(--transition-fast), border-color var(--transition-fast); }.relay-task-card:hover { transform: translateY(-2px); border-color: var(--color-border-strong) !important; }
+.relay-task-card :deep(.card-body) { padding: 20px 22px 20px 28px; }.relay-task-card::before { position: absolute; z-index: 1; left: 13px; top: 26px; bottom: 26px; width: 1px; background: var(--color-border-strong); content: ''; }
+.task-route { min-width: min(540px, 100%); }.route-line-item { position: relative; z-index: 2; display: grid; grid-template-columns: 10px 25px minmax(0, 1fr); align-items: center; gap: 8px; }.route-line-item + .route-line-item { margin-top: 8px; }
+.route-dot { width: 10px; height: 10px; border: 2px solid var(--color-surface); border-radius: 50%; box-shadow: 0 0 0 1px currentColor; }.route-dot.pickup { color: var(--color-success); background: var(--color-success); }.route-dot.delivery { color: var(--color-primary); background: var(--color-primary); }
+.route-label { color: var(--color-text-muted); font-size: .75rem; font-weight: 800; }.task-remark { margin-left: 18px; border-radius: 8px; padding: 7px 10px; background: var(--color-fill); }
+.task-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; }.task-meta span:not(:last-child)::after { content: '·'; margin-left: 16px; color: var(--color-border-strong); }.task-price { color: var(--color-primary); font-size: 1.5rem; font-weight: 800; letter-spacing: -.04em; white-space: nowrap; }
+.task-empty { display: flex; min-height: 300px; flex-direction: column; align-items: center; justify-content: center; text-align: center; }.load-more-state { min-height: 48px; padding: 14px; color: var(--color-text-muted); text-align: center; }
+@media (max-width: 575.98px) { .hall-header { min-height: 96px; padding: 21px 18px; }.hall-header::before { right: 24px; top: 30px; }.filter-label { width: 100%; }.task-route { min-width: 100%; }.task-meta span::after { display: none; }.relay-task-card :deep(.card-body) { padding-right: 16px; }.task-remark { margin-left: 0; } }
 </style>
