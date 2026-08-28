@@ -280,13 +280,11 @@ function isTakenVisibleStatus(statusRaw: unknown) {
 }
 
 function toOrderId(o: OrderRow) {
-  const picked = pickOrderIdFromRow(o)
-  if (picked) return picked
-  return String((o as any)?.id ?? '').trim()
+  return pickOrderIdFromRow(o)
 }
 
 function openDetail(o: OrderRow) {
-  const orderId = toOrderId(o)
+  const orderId = pickOrderIdFromRow(o)
   const taskId = pickTaskIdFromRow(o)
 
   if (orderId) {
@@ -295,7 +293,9 @@ function openDetail(o: OrderRow) {
   }
   if (taskId) {
     router.push({ name: 'task-detail', params: { id: taskId } })
+    return
   }
+  ElMessage.warning('暂时无法找到这条任务记录')
 }
 
 function openChat(o: OrderRow) {
