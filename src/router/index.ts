@@ -189,6 +189,24 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/food/MerchantCenter.vue'),
         meta: { title: '商家工作台' },
       },
+      {
+        path: 'forum',
+        name: 'forum-square',
+        component: () => import('@/views/forum/ForumSquare.vue'),
+        meta: { title: '校园信息广场' },
+      },
+      {
+        path: 'forum/publish',
+        name: 'forum-publish',
+        component: () => import('@/views/forum/ForumPublish.vue'),
+        meta: { title: '发布校园信息' },
+      },
+      {
+        path: 'forum/:id',
+        name: 'forum-detail',
+        component: () => import('@/views/forum/ForumDetail.vue'),
+        meta: { title: '信息详情' },
+      },
 
       {
         path: 'admin/dashboard',
