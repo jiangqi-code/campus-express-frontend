@@ -7,17 +7,6 @@ import { listTasks, type TaskListItem } from '@/api/task'
 import { useAuthStore } from '@/stores/auth'
 
 type SortOption = 'time_desc' | 'time_asc' | 'price_desc' | 'price_asc'
-type FoodDeliveryOrder = {
-  id: number
-  status: string
-  created_at: string
-  delivery_address: string
-  delivery_fee: number
-  runner_income: number
-  remark?: string | null
-  merchant?: { name?: string; address?: string }
-  items: Array<{ item_name: string; quantity: number }>
-}
 
 const auth = useAuthStore()
 
@@ -36,10 +25,6 @@ const total = ref(0)
 const autoCancelTimeoutMinutes = ref(0)
 const countdownNow = ref(Date.now())
 const autoCancelDeadlineMap = ref<Record<string, number | null>>({})
-const foodDeliveryOrders = ref<FoodDeliveryOrder[]>([])
-const activeFoodDeliveryOrders = ref<FoodDeliveryOrder[]>([])
-const foodDeliveryLoading = ref(false)
-const foodDeliveryError = ref('')
 
 let countdownTimer: number | null = null
 let searchTimer: number | null = null
@@ -53,7 +38,6 @@ const pagination = reactive({
 })
 
 const busyAcceptTaskId = ref<string | number | null>(null)
-const busyAcceptFoodOrderId = ref<number | null>(null)
 
 const totalPages = computed(() => {
   const t = Math.max(0, Number(total.value) || 0)
@@ -233,15 +217,18 @@ function toTotalPrice(task: TaskListItem) {
   return totalPrice
 }
 
+function isFoodDeliveryTask(task: TaskListItem) {
+  return String((task as any)?.type ?? '') === 'FOOD_DELIVERY' || Boolean((task as any)?.food_order)
+}
+
 // 计算取件点到送达点的距离（Haversine 公式）
 function getTaskDistance(task: TaskListItem): number | null {
-  const pickupLat = Number((task as any).pickup_lat ?? (task as any).pickupLat)
-  const pickupLng = Number((task as any).pickup_lng ?? (task as any).pickupLng)
-  const deliveryLat = Number((task as any).delivery_lat ?? (task as any).deliveryLat)
-  const deliveryLng = Number((task as any).delivery_lng ?? (task as any).deliveryLng)
+  const pickupLat = normalizeNumber((task as any).pickup_lat ?? (task as any).pickupLat)
+  const pickupLng = normalizeNumber((task as any).pickup_lng ?? (task as any).pickupLng)
+  const deliveryLat = normalizeNumber((task as any).delivery_lat ?? (task as any).deliveryLat)
+  const deliveryLng = normalizeNumber((task as any).delivery_lng ?? (task as any).deliveryLng)
 
-  if (!Number.isFinite(pickupLat) || !Number.isFinite(pickupLng) ||
-      !Number.isFinite(deliveryLat) || !Number.isFinite(deliveryLng)) {
+  if (pickupLat === null || pickupLng === null || deliveryLat === null || deliveryLng === null) {
     return null
   }
 
@@ -489,71 +476,8 @@ async function fetchList(append = false) {
   }
 }
 
-async function fetchFoodDeliveryOrders() {
-  if (!isRunner.value) {
-    foodDeliveryOrders.value = []
-    activeFoodDeliveryOrders.value = []
-    return
-  }
-  foodDeliveryLoading.value = true
-  foodDeliveryError.value = ''
-  try {
-    const [availableResponse, assignedResponse] = await Promise.all([
-      http.get('/food/runner/orders', { params: { available: true, page: 1, page_size: 30 } }),
-      http.get('/food/runner/orders', { params: { page: 1, page_size: 50 } }),
-    ])
-    const availableData = availableResponse.data?.data ?? availableResponse.data ?? {}
-    const assignedData = assignedResponse.data?.data ?? assignedResponse.data ?? {}
-    foodDeliveryOrders.value = Array.isArray(availableData.list) ? availableData.list : []
-    const assigned = Array.isArray(assignedData.list) ? assignedData.list : []
-    activeFoodDeliveryOrders.value = assigned.filter((order: FoodDeliveryOrder) => ['ACCEPTED', 'PICKED', 'DELIVERING', 'DELIVERED'].includes(order.status))
-  } catch (error: any) {
-    foodDeliveryError.value = getErrorMessage(error)
-  } finally {
-    foodDeliveryLoading.value = false
-  }
-}
-
-async function acceptFoodDelivery(orderId: number) {
-  if (!isRunner.value || busyAcceptFoodOrderId.value !== null) return
-  if (isFrozen.value) {
-    ElMessage.warning('账号已冻结，无法接单')
-    return
-  }
-  busyAcceptFoodOrderId.value = orderId
-  try {
-    await http.post(`/food/runner/orders/${orderId}/accept`)
-    ElMessage.success('外卖配送单已接取')
-    await fetchFoodDeliveryOrders()
-  } catch (error: any) {
-    ElMessage.error(getErrorMessage(error))
-  } finally {
-    busyAcceptFoodOrderId.value = null
-  }
-}
-
-function foodDeliveryAction(order: FoodDeliveryOrder) {
-  return ({ ACCEPTED: { label: '确认取餐', action: 'pickup' }, PICKED: { label: '开始配送', action: 'deliver' }, DELIVERING: { label: '确认送达', action: 'complete' } } as Record<string, { label: string; action: string }>)[order.status]
-}
-
-async function advanceFoodDelivery(order: FoodDeliveryOrder) {
-  const next = foodDeliveryAction(order)
-  if (!next || busyAcceptFoodOrderId.value !== null) return
-  busyAcceptFoodOrderId.value = order.id
-  try {
-    await http.post(`/food/runner/orders/${order.id}/status`, { action: next.action })
-    ElMessage.success(`${next.label}已更新`)
-    await fetchFoodDeliveryOrders()
-  } catch (error: any) {
-    ElMessage.error(getErrorMessage(error))
-  } finally {
-    busyAcceptFoodOrderId.value = null
-  }
-}
-
 function refreshHall() {
   void fetchList(false)
-  void fetchFoodDeliveryOrders()
 }
 
 function onSearch() {
@@ -636,7 +560,7 @@ function setupLoadMoreObserver() {
 
 onMounted(() => {
   startCountdownTimer()
-  void Promise.allSettled([loadTimeoutConfig(), fetchList(false), fetchFoodDeliveryOrders()]).finally(() => nextTick(setupLoadMoreObserver))
+  void Promise.allSettled([loadTimeoutConfig(), fetchList(false)]).finally(() => nextTick(setupLoadMoreObserver))
 })
 
 onBeforeUnmount(() => {
@@ -652,24 +576,11 @@ onBeforeUnmount(() => {
       <div class="hall-status">待接单任务（PENDING）</div>
       <div class="d-flex gap-2">
         <RouterLink v-if="canPublish" class="btn btn-primary" to="/task/publish">发布任务</RouterLink>
-        <button class="btn btn-outline-primary" type="button" :disabled="loading || foodDeliveryLoading" @click="refreshHall">刷新</button>
+        <button class="btn btn-outline-primary" type="button" :disabled="loading" @click="refreshHall">刷新</button>
       </div>
     </div>
 
     <div v-if="errorMessage" class="alert alert-danger mb-0" role="alert">{{ errorMessage }}</div>
-
-    <section v-if="isRunner" class="food-delivery-board" aria-label="外卖配送任务">
-      <div class="food-delivery-board__head"><div><h2>外卖配送任务</h2><p>商家确认餐品备好后，配送单会在这里开放接取。</p></div><span v-if="foodDeliveryLoading" class="text-muted small">正在刷新…</span></div>
-      <div v-if="activeFoodDeliveryOrders.length" class="food-delivery-active"><h3>进行中的配送</h3><article v-for="order in activeFoodDeliveryOrders" :key="order.id" class="food-delivery-card active"><div class="food-delivery-card__main"><span class="food-delivery-card__type">外卖配送 · #{{ order.id }}</span><strong>{{ order.merchant?.name || '校园商家' }}</strong><p>{{ order.items.map(item => `${item.item_name} ×${item.quantity}`).join('、') }}</p><div class="food-delivery-card__route"><span>取 {{ order.merchant?.address || '商家档口' }}</span><span>送 {{ order.delivery_address }}</span></div></div><div class="food-delivery-card__action"><small v-if="order.status === 'DELIVERED'">已送达，等待用户确认</small><button v-else-if="foodDeliveryAction(order)" class="btn btn-primary btn-sm" type="button" :disabled="busyAcceptFoodOrderId !== null" @click="advanceFoodDelivery(order)"><span v-if="busyAcceptFoodOrderId === order.id" class="spinner-border spinner-border-sm me-1" aria-hidden="true" />{{ foodDeliveryAction(order)?.label }}</button></div></article></div>
-      <div v-if="foodDeliveryError" class="food-delivery-board__error"><span>{{ foodDeliveryError }}</span><button class="btn btn-outline-primary btn-sm" type="button" @click="fetchFoodDeliveryOrders">重试</button></div>
-      <div v-else-if="foodDeliveryOrders.length" class="food-delivery-list">
-        <article v-for="order in foodDeliveryOrders" :key="order.id" class="food-delivery-card">
-          <div class="food-delivery-card__main"><span class="food-delivery-card__type">外卖配送 · #{{ order.id }}</span><strong>{{ order.merchant?.name || '校园商家' }}</strong><p>{{ order.items.map(item => `${item.item_name} ×${item.quantity}`).join('、') }}</p><div class="food-delivery-card__route"><span>取 {{ order.merchant?.address || '商家档口' }}</span><span>送 {{ order.delivery_address }}</span></div></div>
-          <div class="food-delivery-card__action"><b>¥{{ Number(order.runner_income || order.delivery_fee || 0).toFixed(2) }}</b><small>配送收益</small><button class="btn btn-primary btn-sm" type="button" :disabled="foodDeliveryLoading || busyAcceptFoodOrderId !== null || isFrozen" @click="acceptFoodDelivery(order.id)"><span v-if="busyAcceptFoodOrderId === order.id" class="spinner-border spinner-border-sm me-1" aria-hidden="true" />接配送单</button></div>
-        </article>
-      </div>
-      <div v-else-if="!foodDeliveryLoading" class="food-delivery-board__empty">暂无待取餐的外卖配送单，商家备好餐后会自动出现在这里。</div>
-    </section>
 
     <div class="hall-filter-card card border-0 shadow-sm">
       <div class="card-body">
@@ -743,6 +654,7 @@ onBeforeUnmount(() => {
             <div class="card-body">
               <div class="d-flex flex-wrap align-items-start justify-content-between gap-2">
                 <div class="task-route vstack gap-2">
+                  <span v-if="isFoodDeliveryTask(t)" class="task-source-badge">食堂外卖 · 已自动同步</span>
                   <div class="route-line-item"><span class="route-dot pickup"/><span class="route-label">取</span><strong>{{ (t as any).pickup_address || (t as any).pickupAddress || '—' }}</strong></div>
                   <div class="route-line-item"><span class="route-dot delivery"/><span class="route-label">送</span><strong>{{ (t as any).delivery_address || (t as any).deliveryAddress || '—' }}</strong></div>
                   <div v-if="(t as any).remark" class="task-remark text-muted small">{{ (t as any).remark }}</div>
@@ -803,5 +715,6 @@ onBeforeUnmount(() => {
 .route-label { color: var(--color-text-muted); font-size: .75rem; font-weight: 800; }.task-remark { margin-left: 18px; border-radius: 8px; padding: 7px 10px; background: var(--color-fill); }
 .task-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; }.task-meta span:not(:last-child)::after { content: '·'; margin-left: 16px; color: var(--color-border-strong); }.task-price { color: var(--color-primary); font-size: 1.5rem; font-weight: 800; letter-spacing: -.04em; white-space: nowrap; }
 .task-empty { display: flex; min-height: 300px; flex-direction: column; align-items: center; justify-content: center; text-align: center; }.load-more-state { min-height: 48px; padding: 14px; color: var(--color-text-muted); text-align: center; }
+.task-source-badge { width: fit-content; border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent); border-radius: var(--radius-pill); padding: 3px 8px; background: var(--color-primary-soft); color: var(--color-primary); font-size: 11px; font-weight: 800; }
 @media (max-width: 575.98px) { .food-delivery-board { padding: 16px; }.food-delivery-board__head, .food-delivery-card { align-items: flex-start; flex-direction: column; }.food-delivery-card__action { justify-items: start; }.hall-header { min-height: 44px; }.filter-card-title { align-items: flex-start; flex-direction: column; gap: 2px; margin-bottom: 16px; }.filter-label { width: 100%; }.task-route { min-width: 100%; }.task-meta span::after { display: none; }.relay-task-card :deep(.card-body) { padding-right: 16px; }.task-remark { margin-left: 0; } }
 </style>
