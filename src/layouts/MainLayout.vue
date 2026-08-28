@@ -32,7 +32,10 @@ const contextAction = computed(() => {
 })
 const frozen = computed(() => auth.isFrozen)
 
-function isActive(prefix: string) { return route.path === prefix || route.path.startsWith(`${prefix}/`) }
+function isActive(prefix: string) {
+  if (prefix === '/food') return route.path === '/food' || /^\/food\/merchant\/\d+$/.test(route.path)
+  return route.path === prefix || route.path.startsWith(`${prefix}/`)
+}
 function canShow(roles?: Role[]) { return !roles?.length || roles.includes(auth.role as Role) }
 function closeMobileMenu() { mobileMenuOpen.value = false }
 
